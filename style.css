@@ -105,6 +105,7 @@ button,input{font-family:inherit}
 }
 .pop h2,.panel h2{margin:0;font-size:15px;font-weight:700;letter-spacing:.005em}
 .pop p{margin:6px 0 10px;font-size:12.5px;line-height:1.4;color:var(--muted)}
+.pop p.hr{margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text)}
 .srow{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:center;margin-bottom:10px}
 .srow label{font-size:13px;font-weight:500}
 .srow output{font-size:13px;font-variant-numeric:tabular-nums;color:var(--muted)}
@@ -202,6 +203,26 @@ button,input{font-family:inherit}
 .cta.secondary:hover{background:var(--control-hover)}
 .cta.quiet{background:transparent;color:var(--muted);font-weight:500;height:38px}
 .cta svg{width:20px;height:20px}
+/* Calibración del suelo */
+#calibLayer{z-index:3}
+.caldot{
+  position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;
+  background:var(--tape);border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5);pointer-events:none;
+}
+.caldot b{
+  position:absolute;left:20px;top:-9px;font:700 12px/18px 'Schibsted Grotesk',sans-serif;
+  color:#fff;background:rgba(0,0,0,.55);border-radius:9px;padding:0 6px;white-space:nowrap;
+}
+.calibwrap{position:absolute;z-index:25;left:0;right:0;top:14px;display:flex;justify-content:center;padding:0 12px;pointer-events:none}
+.calibcard{
+  pointer-events:auto;max-width:420px;width:100%;padding:14px 16px;border-radius:16px;text-align:center;
+  background:var(--glass-strong);color:var(--text);border:1px solid var(--line);box-shadow:var(--shadow);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+}
+.calibcard p{margin:0 0 10px;font-size:13.5px;line-height:1.4;font-weight:500}
+.calibdots{display:flex;justify-content:center;gap:6px;margin-bottom:10px}
+.calibdots span{width:7px;height:7px;border-radius:50%;background:var(--line)}
+.calibdots span.done{background:var(--tape)}
 .ghost{
   position:fixed;left:0;top:0;z-index:40;pointer-events:none;width:74px;padding:8px 3px;border-radius:14px;
   background:var(--glass-strong);color:var(--text);box-shadow:var(--shadow);text-align:center;font-size:11px;font-weight:500;
