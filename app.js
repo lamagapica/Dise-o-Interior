@@ -171,7 +171,7 @@ var floorPlane = new THREE.Plane(new THREE.Vector3(0,1,0),0);
 var raycaster = new THREE.Raycaster();
 
 /* Estado */
-var cfg = {h:140,fov:65,grid:true,measure:'sel'};
+var cfg = {h:140,fov:65,grid:true,measure:'sel',refDist:1};
 var view = {yaw:0,pitch:40};
 var items = [], uid = 1, selected = null, lock = false, baseDim = null;
 var SW = 1, SH = 1;
@@ -454,11 +454,43 @@ function setGyro(on){
 }
 bGyro.addEventListener('click',function(){ setGyro(!gyro.on); });
 
+/* Detección automática de la inclinación (sin toques) ---------------- */
+/* En cuanto se activa la cámara, si el navegador puede leer el sensor  */
+/* de movimiento del móvil, usamos la inclinación real del teléfono     */
+/* para ajustar solo el ángulo de la vista virtual al suelo. Esto no    */
+/* necesita ningún toque, pero solo funciona si el móvil sujeta la      */
+/* orientación de forma fiable; por eso "Calibrar suelo" (3 toques)     */
+/* sigue disponible para afinar o para navegadores sin este sensor.     */
+function attemptAutoTilt(){
+  if(typeof DeviceOrientationEvent==='undefined' || gyro.on) return;
+  var ask = Promise.resolve('granted');
+  try{
+    if(typeof DeviceOrientationEvent.requestPermission==='function'){
+      ask = DeviceOrientationEvent.requestPermission();
+    }
+  }catch(e){ ask = Promise.reject(e); }
+  ask.then(function(r){
+    if(r!=='granted') return;
+    var handled = false;
+    function once(e){
+      if(handled || e.beta==null) return;
+      handled = true;
+      window.removeEventListener('deviceorientation',once);
+      var p = clamp(90-Math.abs(e.beta),0,85);
+      view.pitch = p; syncSettings();
+      toast('Inclinación detectada automáticamente. Toca «Calibrar suelo» para ajustarlo con precisión.');
+    }
+    window.addEventListener('deviceorientation',once);
+    setTimeout(function(){ if(!handled) window.removeEventListener('deviceorientation',once); },1200);
+  }).catch(function(){ /* silencioso: seguirá disponible la calibración manual */ });
+}
+
 /* Ajustes */
-var sH=$('#sH'), sP=$('#sP'), sF=$('#sF');
+var sH=$('#sH'), sP=$('#sP'), sF=$('#sF'), sD=$('#sD');
 function syncSettings(){
-  sH.value = cfg.h; sF.value = cfg.fov; sP.value = Math.round(view.pitch);
+  sH.value = cfg.h; sF.value = cfg.fov; sP.value = Math.round(view.pitch); sD.value = Math.round(cfg.refDist*100);
   $('#oH').textContent = cfg.h+' cm'; $('#oF').textContent = cfg.fov+'°'; $('#oP').textContent = Math.round(view.pitch)+'°';
+  $('#oD').textContent = Math.round(cfg.refDist*100)+' cm';
   camera.fov = cfg.fov; camera.updateProjectionMatrix();
   grid.visible = cfg.grid;
   $('#bGrid').setAttribute('aria-pressed',String(cfg.grid));
@@ -466,7 +498,8 @@ function syncSettings(){
 sH.addEventListener('input',function(){ cfg.h = parseInt(sH.value,10); syncSettings(); save(); });
 sF.addEventListener('input',function(){ cfg.fov = parseInt(sF.value,10); syncSettings(); save(); });
 sP.addEventListener('input',function(){ view.pitch = parseInt(sP.value,10); syncSettings(); });
-$('#sReset').addEventListener('click',function(){ cfg.h=140; cfg.fov=65; view.pitch=40; syncSettings(); save(); });
+sD.addEventListener('input',function(){ cfg.refDist = parseInt(sD.value,10)/100; syncSettings(); save(); });
+$('#sReset').addEventListener('click',function(){ cfg.h=140; cfg.fov=65; view.pitch=40; cfg.refDist=1; syncSettings(); save(); });
 $('#bSet').addEventListener('click',function(){
   var pop = $('#settings'); pop.hidden = !pop.hidden;
   this.setAttribute('aria-pressed',String(!pop.hidden));
@@ -508,6 +541,7 @@ function startCamera(){
       if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
       stream = s; cam.srcObject = s; setBg('cam');
       var p = cam.play(); if(p&&p.catch) p.catch(function(){});
+      attemptAutoTilt();
       return true;
     })
     .catch(function(err){
@@ -581,9 +615,167 @@ function pick(cx,cy){
   return items.filter(function(i){ return i.id===o.userData.itemId; })[0] || null;
 }
 
+/* ------------------------------------------------------------------ */
+/* Calibración manual del suelo (3 puntos)                             */
+/* No hay sensor de profundidad en un navegador normal, así que no se   */
+/* puede "ver" el suelo real. Como alternativa fiable, el usuario toca  */
+/* 3 puntos reales del suelo (con contraste: una esquina, una juntura   */
+/* de baldosas...) separados por la distancia de referencia de los      */
+/* ajustes, formando una escuadra en L. Con esos 3 puntos se resuelve   */
+/* numéricamente qué altura e inclinación de cámara hacen que la        */
+/* rejilla virtual coincida con el suelo real (un caso del problema      */
+/* clásico de pose de cámara a partir de 3 puntos, resuelto aquí con     */
+/* un optimizador Nelder-Mead en vez de una fórmula cerrada).            */
+var calibLayer = $('#calibLayer'), calibwrap = $('#calibwrap'), calibText = $('#calibText'), bCalib = $('#bCalib');
+var calibDotEls = $('#calibProgress').children;
+var calib = null; /* {pts:[Vector2,...]} en coordenadas NDC */
+var calibCam = new THREE.PerspectiveCamera(65,1,0.05,50);
+
+function calibMsg(i){
+  var cm = Math.round(cfg.refDist*100);
+  return [
+    'Toca un punto del suelo con buen contraste (una esquina, una juntura de baldosas...).',
+    'Ahora toca otro punto del suelo a '+cm+' cm en línea recta desde el primero.',
+    'Por último, toca un tercer punto a '+cm+' cm del primero, en dirección perpendicular al segundo.'
+  ][i];
+}
+function setCalibProgress(n){
+  for(var i=0;i<calibDotEls.length;i++) calibDotEls[i].classList.toggle('done',i<n);
+}
+function startCalibration(){
+  if(bgMode==='none'){ toast('Activa antes la cámara o una foto de la habitación.'); return; }
+  select(null);
+  calib = {pts:[]};
+  calibLayer.innerHTML = '';
+  calibText.textContent = calibMsg(0);
+  setCalibProgress(0);
+  calibwrap.hidden = false;
+  bCalib.setAttribute('aria-pressed','true');
+}
+function cancelCalibration(){
+  calib = null; calibwrap.hidden = true; calibLayer.innerHTML = '';
+  bCalib.setAttribute('aria-pressed','false');
+}
+function addCalibDot(cx,cy,n){
+  var r = stage.getBoundingClientRect();
+  var d = document.createElement('div'); d.className = 'caldot';
+  d.style.left = (cx-r.left)+'px'; d.style.top = (cy-r.top)+'px';
+  var b = document.createElement('b'); b.textContent = String(n); d.appendChild(b);
+  calibLayer.appendChild(d);
+}
+$('#bCalib').addEventListener('click',function(){ if(calib) cancelCalibration(); else startCalibration(); });
+$('#calibCancel').addEventListener('click',cancelCalibration);
+
+/* Optimizador Nelder-Mead genérico (sin dependencias) */
+function nelderMead(f,x0,opts){
+  opts = opts||{};
+  var n = x0.length, maxIter = opts.maxIter||300, tol = opts.tol||1e-10;
+  var alpha=1, gamma=2, rho=0.5, sigma=0.5;
+  var simplex = [x0.slice()], fvals;
+  for(var i=0;i<n;i++){
+    var xi = x0.slice(); xi[i] += (xi[i]!==0 ? Math.abs(xi[i])*0.12 : 0.12);
+    simplex.push(xi);
+  }
+  fvals = simplex.map(f);
+  for(var iter=0; iter<maxIter; iter++){
+    var idx = fvals.map(function(v,i){ return i; }).sort(function(a,b){ return fvals[a]-fvals[b]; });
+    simplex = idx.map(function(i){ return simplex[i]; });
+    fvals = idx.map(function(i){ return fvals[i]; });
+    if(Math.abs(fvals[n]-fvals[0]) < tol) break;
+    var centroid = new Array(n).fill(0);
+    for(i=0;i<n;i++){ for(var j=0;j<n;j++) centroid[j]+=simplex[i][j]; }
+    for(j=0;j<n;j++) centroid[j]/=n;
+    var worst = simplex[n];
+    var xr = centroid.map(function(c,j){ return c+alpha*(c-worst[j]); });
+    var fr = f(xr);
+    if(fr < fvals[0]){
+      var xe = centroid.map(function(c,j){ return c+gamma*(c-worst[j]); });
+      var fe = f(xe);
+      if(fe<fr){ simplex[n]=xe; fvals[n]=fe; } else { simplex[n]=xr; fvals[n]=fr; }
+    }else if(fr < fvals[n-1]){
+      simplex[n]=xr; fvals[n]=fr;
+    }else{
+      var xc = centroid.map(function(c,j){ return c+rho*(worst[j]-c); });
+      var fc = f(xc);
+      if(fc<fvals[n]){ simplex[n]=xc; fvals[n]=fc; }
+      else{
+        for(i=1;i<=n;i++){
+          simplex[i] = simplex[i].map(function(v,j){ return simplex[0][j]+sigma*(v-simplex[0][j]); });
+          fvals[i] = f(simplex[i]);
+        }
+      }
+    }
+  }
+  var best = fvals.map(function(v,i){ return i; }).sort(function(a,b){ return fvals[a]-fvals[b]; })[0];
+  return {x:simplex[best], f:fvals[best]};
+}
+
+/* Error de reproyección: dados (altura, inclinación, giro de la L,      */
+/* posición del punto O), ¿coinciden O/A/B proyectados con los toques?   */
+function calibProjErr(params, pts){
+  var h=params[0], pitchDeg=params[1], thetaDeg=params[2], ox=params[3], oz=params[4];
+  if(h<50||h>250||pitchDeg<-15||pitchDeg>89) return 1e6;
+  calibCam.fov = camera.fov; calibCam.aspect = camera.aspect; calibCam.near = 0.05; calibCam.far = 50;
+  calibCam.updateProjectionMatrix();
+  calibCam.position.set(0,h/100,0);
+  calibCam.quaternion.setFromEuler(new THREE.Euler(-pitchDeg*RAD,0,0,'YXZ'));
+  calibCam.updateMatrixWorld(true);
+  var th = thetaDeg*RAD, cos=Math.cos(th), sin=Math.sin(th), d = cfg.refDist;
+  var local = [[0,0],[1,0],[0,1]], err = 0, v = new THREE.Vector3();
+  for(var i=0;i<3;i++){
+    var lx=local[i][0]*d, lz=local[i][1]*d;
+    var wx = ox + lx*cos - lz*sin, wz = oz + lx*sin + lz*cos;
+    v.set(wx,0,wz).project(calibCam);
+    if(v.z>1||v.z<-1||!isFinite(v.x)||!isFinite(v.y)) return 1e6;
+    var dx=v.x-pts[i].x, dy=v.y-pts[i].y;
+    err += dx*dx+dy*dy;
+  }
+  return err;
+}
+function solveFloorCalibration(pts){
+  var best = null;
+  [0,90,180,270].forEach(function(t0){
+    [-1.5,-2.5,-3.5].forEach(function(oz0){
+      var res = nelderMead(function(x){ return calibProjErr(x,pts); },[cfg.h,view.pitch,t0,0,oz0],{maxIter:220});
+      if(!best || res.f<best.f) best = res;
+    });
+  });
+  /* refinamiento final desde el mejor punto encontrado */
+  best = nelderMead(function(x){ return calibProjErr(x,pts); }, best.x, {maxIter:200,tol:1e-12});
+  return best;
+}
+function finishCalibration(pts){
+  calibwrap.hidden = true; calibLayer.innerHTML = ''; calib = null;
+  bCalib.setAttribute('aria-pressed','false');
+  toast('Calculando…');
+  setTimeout(function(){
+    var best = solveFloorCalibration(pts);
+    if(!best || !isFinite(best.f)){
+      toast('No se pudo calibrar. Prueba a tocar 3 puntos más separados y con más contraste.');
+      return;
+    }
+    var h = clamp(best.x[0],80,220), pitch = clamp(best.x[1],0,85);
+    cfg.h = Math.round(h); view.pitch = pitch;
+    syncSettings(); save();
+    if(best.f > 0.02){
+      toast('Suelo calibrado, pero con poca precisión. Repite tocando puntos más separados y bien definidos.');
+    }else{
+      toast('Suelo calibrado correctamente.');
+    }
+  },30);
+}
+
 var drag = null;
 canvas.addEventListener('pointerdown',function(e){
   if(!e.isPrimary) return;
+  if(calib){
+    addCalibDot(e.clientX,e.clientY,calib.pts.length+1);
+    calib.pts.push(ndcFrom(e.clientX,e.clientY));
+    setCalibProgress(calib.pts.length);
+    if(calib.pts.length<3){ calibText.textContent = calibMsg(calib.pts.length); }
+    else{ var pts = calib.pts; finishCalibration(pts); }
+    return;
+  }
   try{ canvas.setPointerCapture(e.pointerId); }catch(_){}
   var hit = pick(e.clientX,e.clientY);
   drag = {id:e.pointerId,sx:e.clientX,sy:e.clientY,lx:e.clientX,ly:e.clientY,moved:false,item:hit,ox:0,oz:0};
@@ -623,6 +815,7 @@ canvas.addEventListener('wheel',function(e){
 window.addEventListener('keydown',function(e){
   var tag = (e.target.tagName||'').toLowerCase();
   if(tag==='input'||tag==='textarea'){ if(e.key==='Escape') e.target.blur(); return; }
+  if(e.key==='Escape' && calib){ cancelCalibration(); return; }
   if((e.key==='Delete'||e.key==='Backspace') && selected){ e.preventDefault(); removeItem(selected); }
   else if(e.key==='Escape') select(null);
   else if((e.key==='r'||e.key==='R') && selected) rotateBy(15);
@@ -684,7 +877,7 @@ function save(){
     try{
       localStorage.setItem(KEY,JSON.stringify({
         items:items.map(function(i){ return {t:i.type,d:i.dim,c:i.color,r:i.rot,x:i.group.position.x,z:i.group.position.z}; }),
-        cfg:{h:cfg.h,fov:cfg.fov,grid:cfg.grid,measure:cfg.measure}
+        cfg:{h:cfg.h,fov:cfg.fov,grid:cfg.grid,measure:cfg.measure,refDist:cfg.refDist}
       }));
     }catch(_){}
   },400);
@@ -697,6 +890,7 @@ function restore(){
       if(isFinite(s.cfg.fov)) cfg.fov = clamp(s.cfg.fov,45,90);
       if(typeof s.cfg.grid==='boolean') cfg.grid = s.cfg.grid;
       if(MODES.indexOf(s.cfg.measure)>-1) cfg.measure = s.cfg.measure;
+      if(isFinite(s.cfg.refDist)) cfg.refDist = clamp(s.cfg.refDist,0.3,3);
     }
     (s.items||[]).slice(0,60).forEach(function(o){
       if(CATALOG.some(function(c){ return c.id===o.t; })) addItem(o.t,Number(o.x)||0,Number(o.z)||0,{dim:o.d,color:o.c,rot:o.r,silent:true});
