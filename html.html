@@ -3,1245 +3,193 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DecorAR - Amueblado en Realidad Aumentada</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Font Awesome Icons -->
+    <title>AR Home Studio - Amueblamiento en Realidad Aumentada</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Google Fonts Inter -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Three.js library -->
+    <!-- Three.js & OrbitControls -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- OrbitControls for Three.js -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    },
-                    colors: {
-                        brand: {
-                            50: '#f0fdf4',
-                            500: '#22c55e',
-                            600: '#16a34a',
-                            700: '#15803d',
-                            900: '#14532d',
-                        },
-                        darkglass: 'rgba(18, 24, 38, 0.82)',
-                    }
-                }
-            }
-        }
-    </script>
-
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            overflow: hidden;
-            user-select: none;
-        }
-
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.78);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-        }
-
-        .glass-card {
-            background: rgba(30, 41, 59, 0.6);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            transition: all 0.2s ease-in-out;
-        }
-
-        .glass-card:hover {
-            border-color: rgba(34, 197, 94, 0.5);
-            background: rgba(30, 41, 59, 0.85);
-        }
-
-        /* 3D Viewport canvas container */
-        #canvas-container {
-            width: 100vw;
-            height: 100vh;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 1;
-        }
-
-        /* Custom scrollbar for drawer */
-        .custom-scroll::-webkit-scrollbar {
-            width: 5px;
-        }
-        .custom-scroll::-webkit-scrollbar-track {
-            background: rgba(15, 23, 42, 0.5);
-        }
-        .custom-scroll::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-        }
-        .custom-scroll::-webkit-scrollbar-thumb:hover {
-            background: rgba(34, 197, 94, 0.6);
-        }
-
-        /* Simulated Camera Feed Overlay */
-        .camera-overlay {
-            background: radial-gradient(circle at center, transparent 30%, rgba(0, 0, 0, 0.4) 100%);
-        }
-
-        /* 3D Dynamic Label overlay styling */
-        .measurement-label {
-            position: absolute;
-            z-index: 10;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 3px 8px;
-            border-radius: 9999px;
-            background: rgba(15, 23, 42, 0.85);
-            color: #38bdf8;
-            border: 1px solid rgba(56, 189, 248, 0.4);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            white-space: nowrap;
-            transition: opacity 0.15s ease;
-        }
-    </style>
 </head>
-<body class="bg-slate-950 text-slate-100 h-screen w-screen relative overflow-hidden select-none">
-
-    <div id="canvas-container" class="relative">
-        <video id="webcam-video" autoplay playsinline class="hidden absolute inset-0 w-full h-full object-cover z-0 pointer-events-none opacity-40"></video>
-        <div class="camera-overlay absolute inset-0 pointer-events-none z-1"></div>
-    </div>
-
-    <div id="labels-container" class="absolute inset-0 pointer-events-none z-10 overflow-hidden"></div>
-
-    <header class="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
-        <!-- Logo & AR Status Badge -->
-        <div class="flex items-center gap-3 pointer-events-auto">
-            <div class="glass-panel px-4 py-2.5 rounded-2xl flex items-center gap-3 shadow-xl border border-slate-700/50">
-                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center text-slate-950 font-black text-lg shadow-lg">
-                    <i class="fa-solid fa-cube"></i>
-                </div>
-                <div>
-                    <h1 class="font-bold text-base tracking-wide leading-tight text-white">Decor<span class="text-brand-500">AR</span> Studio</h1>
-                    <p class="text-[11px] text-slate-400 font-medium">Diseño Espacial & Medidas 3D</p>
-                </div>
+<body>
+    <div id="app-container">
+        <!-- BARRA DE NAVEGACIÓN SUPERIOR -->
+        <header class="top-navbar">
+            <div class="brand">
+                <i class="fa-solid fa-cube logo-icon"></i>
+                <h2>AR Home Studio</h2>
             </div>
-
-            <!-- AR Room Status Badge -->
-            <div class="glass-panel hidden sm:flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl shadow-xl text-xs font-medium">
-                <span class="relative flex h-2.5 w-2.5">
-                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand-500"></span>
-                </span>
-                <span id="ar-status-text" class="text-slate-200">Plano Detección Activo</span>
-                <span class="text-slate-500">|</span>
-                <span class="text-slate-400"><i class="fa-solid fa-[#00ffcc] fa-ruler-combined mr-1 text-brand-500"></i>Cotas en cm</span>
-            </div>
-        </div>
-
-        <!-- Top Right Actions & Controls -->
-        <div class="flex items-center gap-2 pointer-events-auto ml-auto">
-            <button id="btn-toggle-camera" title="Cambiar a fondo de Cámara Real" class="glass-panel hover:bg-slate-800 text-slate-200 p-2.5 px-3.5 rounded-2xl text-xs font-medium flex items-center gap-2 transition shadow-lg">
-                <i class="fa-solid fa-camera text-brand-500"></i>
-                <span class="hidden md:inline">Simular/Activar Cámara</span>
-            </button>
-
-            <button id="btn-toggle-all-measures" title="Mostrar/Ocultar cotas globales" class="glass-panel hover:bg-slate-800 text-slate-200 p-2.5 px-3.5 rounded-2xl text-xs font-medium flex items-center gap-2 transition shadow-lg border-brand-500/30">
-                <i class="fa-solid fa-ruler-horizontal text-emerald-400"></i>
-                <span class="hidden sm:inline">Ver Medidas Globales</span>
-            </button>
-
-            <button id="btn-export-plan" title="Exportar Resumen y Medidas" class="glass-panel hover:bg-slate-800 text-slate-200 p-2.5 px-3.5 rounded-2xl text-xs font-medium flex items-center gap-2 transition shadow-lg">
-                <i class="fa-solid fa-file-invoice text-sky-400"></i>
-                <span class="hidden sm:inline">Resumen</span>
-            </button>
-
-            <button id="btn-reset-scene" title="Reiniciar Escena" class="glass-panel hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 p-2.5 rounded-2xl text-xs transition shadow-lg">
-                <i class="fa-solid fa-trash-can"></i>
-            </button>
-        </div>
-    </header>
-
-    <div id="ar-instruction-toast" class="absolute top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-all duration-300 opacity-100">
-        <div class="glass-panel px-4 py-2 rounded-full text-xs font-medium text-slate-200 flex items-center gap-2 shadow-2xl border-brand-500/40">
-            <i class="fa-solid fa-hand-pointer text-brand-500 animate-bounce"></i>
-            <span>Arrastra un mueble del catálogo al suelo o haz clic sobre uno para configurarlo</span>
-        </div>
-    </div>
-
-    <aside id="catalog-drawer" class="absolute left-4 top-20 bottom-6 w-80 max-w-[calc(100vw-2rem)] z-20 glass-panel rounded-3xl flex flex-col shadow-2xl transition-transform duration-300 ease-in-out border border-slate-700/60">
-        <!-- Catalog Header -->
-        <div class="p-4 pb-3 border-b border-slate-800 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-                <i class="fa-solid fa-couch text-brand-500 text-base"></i>
-                <h2 class="font-bold text-sm tracking-wide text-white">Catálogo de Muebles</h2>
-            </div>
-            <span class="text-[10px] bg-slate-800 text-slate-400 font-semibold px-2 py-1 rounded-lg">3D AR Ready</span>
-        </div>
-
-        <!-- Category Filters -->
-        <div class="p-3 border-b border-slate-800/80 flex gap-1.5 overflow-x-auto custom-scroll text-xs">
-            <button data-cat="all" class="cat-btn bg-brand-600 text-slate-950 font-semibold px-3 py-1.5 rounded-xl whitespace-nowrap transition">Todos</button>
-            <button data-cat="asientos" class="cat-btn bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl whitespace-nowrap transition">Sillas y Sofás</button>
-            <button data-cat="mesas" class="cat-btn bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl whitespace-nowrap transition">Mesas</button>
-            <button data-cat="almacenamiento" class="cat-btn bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl whitespace-nowrap transition">Muebles</button>
-            <button data-cat="decoracion" class="cat-btn bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl whitespace-nowrap transition">Decoración</button>
-        </div>
-
-        <!-- Furniture Items List -->
-        <div id="catalog-list" class="flex-1 overflow-y-auto p-3 grid grid-cols-1 gap-2.5 custom-scroll">
-            <!-- Furniture Item Cards will be injected via JS -->
-        </div>
-
-        <!-- Catalog Footer Hint -->
-        <div class="p-3 border-t border-slate-800 text-[11px] text-slate-400 text-center flex items-center justify-center gap-2 bg-slate-900/40 rounded-b-3xl">
-            <i class="fa-solid fa-arrows-up-down-left-right text-brand-500"></i>
-            <span>Arrastra al espacio o haz clic en "+ Añadir"</span>
-        </div>
-    </aside>
-
-    <aside id="config-panel" class="absolute right-4 top-20 bottom-6 w-80 max-w-[calc(100vw-2rem)] z-20 glass-panel rounded-3xl flex flex-col shadow-2xl transition-all duration-300 ease-in-out border border-slate-700/60 transform translate-x-[110%] opacity-0">
-        <!-- Panel Header -->
-        <div class="p-4 pb-3 border-b border-slate-800 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-                <i class="fa-solid fa-sliders text-brand-500 text-base"></i>
-                <h2 class="font-bold text-sm tracking-wide text-white">Medidas y Propiedades</h2>
-            </div>
-            <button id="btn-close-config" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 text-xs transition">
-                <i class="fa-solid fa-xmark text-base"></i>
-            </button>
-        </div>
-
-        <div class="flex-1 overflow-y-auto p-4 custom-scroll space-y-5">
-            <!-- Selected Item Header Banner -->
-            <div class="glass-card p-3 rounded-2xl flex items-center gap-3">
-                <div id="selected-item-icon" class="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-xl text-brand-500">
-                    <i class="fa-solid fa-chair"></i>
-                </div>
-                <div class="flex-1 min-w-0">
-                    <h3 id="selected-item-name" class="font-bold text-sm text-slate-100 truncate">Sillón Escandinavo</h3>
-                    <p id="selected-item-category" class="text-xs text-slate-400">Categoría: Asientos</p>
-                </div>
-            </div>
-
-            <!-- Precision Dimension Controls (Medidas Exactas) -->
-            <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                    <label class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                        <i class="fa-solid fa-ruler-combined text-brand-500"></i>
-                        Ajuste de Dimensiones
-                    </label>
-                    <button id="btn-toggle-aspect" class="text-[11px] text-brand-500 hover:text-brand-400 flex items-center gap-1 bg-brand-950/40 px-2 py-0.5 rounded-md border border-brand-800/40 transition">
-                        <i id="aspect-lock-icon" class="fa-solid fa-link text-[10px]"></i>
-                        <span id="aspect-lock-text">Proporcional</span>
-                    </button>
-                </div>
-
-                <!-- Width (Ancho - X) -->
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-1.5">
-                    <div class="flex justify-between items-center text-xs">
-                        <span class="text-slate-400 font-medium">Ancho (X):</span>
-                        <div class="flex items-center gap-1">
-                            <input type="number" id="input-width" min="10" max="500" class="w-16 bg-slate-950 border border-slate-700 text-right text-brand-400 font-bold text-xs rounded px-1.5 py-0.5 focus:outline-none focus:border-brand-500">
-                            <span class="text-slate-500 text-[10px]">cm</span>
-                        </div>
-                    </div>
-                    <input type="range" id="slider-width" min="20" max="300" value="80" class="w-full accent-brand-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer">
-                </div>
-
-                <!-- Depth (Fondo/Largo - Z) -->
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-1.5">
-                    <div class="flex justify-between items-center text-xs">
-                        <span class="text-slate-400 font-medium">Fondo / Largo (Z):</span>
-                        <div class="flex items-center gap-1">
-                            <input type="number" id="input-depth" min="10" max="500" class="w-16 bg-slate-950 border border-slate-700 text-right text-brand-400 font-bold text-xs rounded px-1.5 py-0.5 focus:outline-none focus:border-brand-500">
-                            <span class="text-slate-500 text-[10px]">cm</span>
-                        </div>
-                    </div>
-                    <input type="range" id="slider-depth" min="20" max="300" value="85" class="w-full accent-brand-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer">
-                </div>
-
-                <!-- Height (Alto - Y) -->
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-1.5">
-                    <div class="flex justify-between items-center text-xs">
-                        <span class="text-slate-400 font-medium">Alto (Y):</span>
-                        <div class="flex items-center gap-1">
-                            <input type="number" id="input-height" min="10" max="500" class="w-16 bg-slate-950 border border-slate-700 text-right text-brand-400 font-bold text-xs rounded px-1.5 py-0.5 focus:outline-none focus:border-brand-500">
-                            <span class="text-slate-500 text-[10px]">cm</span>
-                        </div>
-                    </div>
-                    <input type="range" id="slider-height" min="10" max="300" value="95" class="w-full accent-brand-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer">
-                </div>
-            </div>
-
-            <!-- Quick Scale Presets -->
-            <div class="space-y-2">
-                <label class="text-xs font-semibold uppercase tracking-wider text-slate-400 block">Escala Rápida</label>
-                <div class="grid grid-cols-3 gap-2">
-                    <button class="btn-preset-scale bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs py-1.5 rounded-xl transition font-medium" data-scale="0.8">0.8x (-20%)</button>
-                    <button class="btn-preset-scale bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs py-1.5 rounded-xl transition font-medium" data-scale="1.0">1.0x (Orig)</button>
-                    <button class="btn-preset-scale bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs py-1.5 rounded-xl transition font-medium" data-scale="1.2">1.2x (+20%)</button>
-                </div>
-            </div>
-
-            <!-- Rotation Controls -->
-            <div class="space-y-2">
-                <label class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center justify-between">
-                    <span>Orientación / Rotación</span>
-                    <span id="rotation-val-text" class="text-brand-400 font-bold text-xs">0°</span>
-                </label>
-                <div class="flex items-center gap-2">
-                    <button id="btn-rotate-left" class="bg-slate-800 hover:bg-slate-700 text-slate-200 p-2.5 rounded-xl text-xs transition flex-1 flex items-center justify-center gap-1">
-                        <i class="fa-solid fa-rotate-left"></i> -45°
-                    </button>
-                    <button id="btn-rotate-right" class="bg-slate-800 hover:bg-slate-700 text-slate-200 p-2.5 rounded-xl text-xs transition flex-1 flex items-center justify-center gap-1">
-                        <i class="fa-solid fa-rotate-right"></i> +45°
-                    </button>
-                </div>
-            </div>
-
-            <!-- Material / Color Selection -->
-            <div class="space-y-2">
-                <label class="text-xs font-semibold uppercase tracking-wider text-slate-300 block">Acabado / Color</label>
-                <div class="flex items-center gap-2.5" id="color-picker-group">
-                    <button class="color-opt w-7 h-7 rounded-full border-2 border-white shadow-md transition transform hover:scale-110" style="background-color: #3b82f6;" data-color="#3b82f6"></button>
-                    <button class="color-opt w-7 h-7 rounded-full border-2 border-transparent hover:border-white shadow-md transition transform hover:scale-110" style="background-color: #10b981;" data-color="#10b981"></button>
-                    <button class="color-opt w-7 h-7 rounded-full border-2 border-transparent hover:border-white shadow-md transition transform hover:scale-110" style="background-color: #f59e0b;" data-color="#f59e0b"></button>
-                    <button class="color-opt w-7 h-7 rounded-full border-2 border-transparent hover:border-white shadow-md transition transform hover:scale-110" style="background-color: #ef4444;" data-color="#ef4444"></button>
-                    <button class="color-opt w-7 h-7 rounded-full border-2 border-transparent hover:border-white shadow-md transition transform hover:scale-110" style="background-color: #64748b;" data-color="#64748b"></button>
-                    <button class="color-opt w-7 h-7 rounded-full border-2 border-transparent hover:border-white shadow-md transition transform hover:scale-110" style="background-color: #1e293b;" data-color="#1e293b"></button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Panel Footer Actions -->
-        <div class="p-4 border-t border-slate-800 grid grid-cols-2 gap-2 bg-slate-900/50 rounded-b-3xl">
-            <button id="btn-duplicate-item" class="bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5">
-                <i class="fa-solid fa-copy text-brand-400"></i> Duplicar
-            </button>
-            <button id="btn-delete-item" class="bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800/40 py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5">
-                <i class="fa-solid fa-trash-can"></i> Eliminar
-            </button>
-        </div>
-    </aside>
-
-    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3">
-        <div class="glass-panel px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700/60">
-            <button id="btn-toggle-catalog-mobile" class="md:hidden text-slate-300 hover:text-white p-2 rounded-xl text-xs flex items-center gap-2 bg-slate-800">
-                <i class="fa-solid fa-list-ul text-brand-500"></i> Catálogo
-            </button>
-            <div class="h-4 w-px bg-slate-700 md:hidden"></div>
-
-            <button id="btn-snapshot" class="bg-gradient-to-r from-brand-600 to-emerald-500 hover:from-brand-500 hover:to-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition shadow-lg flex items-center gap-2">
-                <i class="fa-solid fa-camera"></i>
-                <span>Capturar AR</span>
-            </button>
-
-            <button id="btn-clear-selection" class="text-slate-400 hover:text-slate-200 text-xs px-2 py-1 transition">
-                Deseleccionar
-            </button>
-        </div>
-    </div>
-
-    <div id="modal-summary" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-200">
-        <div class="glass-panel w-full max-w-lg rounded-3xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            <div class="p-5 border-b border-slate-800 flex items-center justify-between">
-                <div class="flex items-center gap-2.5">
-                    <i class="fa-solid fa-clipboard-list text-brand-500 text-xl"></i>
-                    <div>
-                        <h3 class="font-bold text-base text-white">Resumen de Amueblado</h3>
-                        <p class="text-xs text-slate-400">Lista de muebles colocados y sus dimensiones exactas</p>
-                    </div>
-                </div>
-                <button id="btn-close-modal" class="text-slate-400 hover:text-white p-1 rounded-lg">
-                    <i class="fa-solid fa-xmark text-lg"></i>
+            <div class="actions">
+                <button id="btn-toggle-dimensions" class="action-btn active" title="Mostrar/Ocultar Cotas">
+                    <i class="fa-solid fa-ruler-combined"></i>
+                    <span>Cotas</span>
+                </button>
+                <button id="btn-camera" class="action-btn" title="Simular Vista de Cámara AR">
+                    <i class="fa-solid fa-camera"></i>
+                    <span>Cámara AR</span>
+                </button>
+                <button id="btn-clear" class="action-btn danger" title="Limpiar Escena">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>Limpiar</span>
+                </button>
+                <button id="btn-export" class="action-btn primary" title="Exportar Resumen de Medidas">
+                    <i class="fa-solid fa-file-invoice"></i>
+                    <span>Resumen</span>
                 </button>
             </div>
+        </header>
 
-            <div id="modal-summary-content" class="p-5 overflow-y-auto custom-scroll flex-1 space-y-3">
-                <!-- Injected via JS -->
-            </div>
-
-            <div class="p-4 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between">
-                <div class="text-xs text-slate-400">
-                    Total objetos: <span id="summary-count" class="font-bold text-white">0</span>
+        <!-- CONTENEDOR PRINCIPAL -->
+        <div class="main-content">
+            <!-- PANEL LATERAL IZQUIERDO: CATÁLOGO DE MUEBLES -->
+            <aside class="sidebar-left">
+                <div class="sidebar-header">
+                    <h3><i class="fa-solid fa-store"></i> Catálogo</h3>
                 </div>
-                <button id="btn-copy-summary" class="bg-brand-600 hover:bg-brand-500 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition flex items-center gap-2">
-                    <i class="fa-solid fa-copy"></i> Copiar Lista
-                </button>
+                
+                <!-- Categorías -->
+                <div class="categories-tab">
+                    <button class="cat-btn active" data-cat="all">Todos</button>
+                    <button class="cat-btn" data-cat="seating">Asientos</button>
+                    <button class="cat-btn" data-cat="tables">Mesas</button>
+                    <button class="cat-btn" data-cat="storage">Muebles</button>
+                    <button class="cat-btn" data-cat="decor">Decoración</button>
+                </div>
+
+                <!-- Lista de Productos (Draggables) -->
+                <div class="furniture-grid" id="furniture-grid">
+                    <!-- Los elementos se generan dinámicamente -->
+                </div>
+            </aside>
+
+            <!-- ÁREA CENTRAL: VISOR 3D / AR -->
+            <main class="viewport-container" id="viewport-container">
+                <!-- Overlay de Instrucciones -->
+                <div class="ar-instructions">
+                    <i class="fa-solid fa-hand-pointer"></i>
+                    <span>Arrastra o haz clic en un mueble para colocarlo en la estancia.</span>
+                </div>
+
+                <!-- Video Feed Simulado -->
+                <video id="webcam-feed" autoplay playsinline muted style="display: none;"></video>
+                
+                <!-- Canvas 3D -->
+                <canvas id="ar-canvas"></canvas>
+
+                <!-- Cotas Flotantes HTML -->
+                <div id="dimension-labels-container"></div>
+            </main>
+
+            <!-- PANEL LATERAL DERECHO: AJUSTES Y MEDIDAS -->
+            <aside class="sidebar-right" id="inspector-panel">
+                <div class="sidebar-header">
+                    <h3><i class="fa-solid fa-sliders"></i> Propiedades y Medidas</h3>
+                </div>
+
+                <div id="inspector-empty" class="inspector-empty-state">
+                    <i class="fa-solid fa-object-ungroup"></i>
+                    <p>Selecciona un mueble en el espacio para editar sus dimensiones reales.</p>
+                </div>
+
+                <div id="inspector-content" class="inspector-content" style="display: none;">
+                    <div class="item-title-box">
+                        <h4 id="selected-item-name">Sofá Escandinavo</h4>
+                        <span class="badge" id="selected-item-cat">Asientos</span>
+                    </div>
+
+                    <!-- Dimensiones en centímetros -->
+                    <div class="control-group">
+                        <label class="group-title"><i class="fa-solid fa-ruler"></i> Dimensiones Precisas (cm)</label>
+                        
+                        <div class="input-row">
+                            <span class="axis-label label-x">Ancho (X):</span>
+                            <input type="number" id="dim-x" min="10" max="500" step="1" value="100">
+                            <span class="unit">cm</span>
+                        </div>
+
+                        <div class="input-row">
+                            <span class="axis-label label-y">Alto (Y):</span>
+                            <input type="number" id="dim-y" min="10" max="500" step="1" value="100">
+                            <span class="unit">cm</span>
+                        </div>
+
+                        <div class="input-row">
+                            <span class="axis-label label-z">Fondo (Z):</span>
+                            <input type="number" id="dim-z" min="10" max="500" step="1" value="100">
+                            <span class="unit">cm</span>
+                        </div>
+
+                        <div class="checkbox-row">
+                            <input type="checkbox" id="lock-aspect" checked>
+                            <label for="lock-aspect">Mantener proporción al escalar</label>
+                        </div>
+                    </div>
+
+                    <!-- Ajustes de Rotación y Posición -->
+                    <div class="control-group">
+                        <label class="group-title"><i class="fa-solid fa-rotate"></i> Orientación</label>
+                        <div class="input-row">
+                            <span>Rotación:</span>
+                            <input type="range" id="rotation-y" min="0" max="360" value="0">
+                            <span id="rotation-val" class="unit">0°</span>
+                        </div>
+                    </div>
+
+                    <!-- Material / Color -->
+                    <div class="control-group">
+                        <label class="group-title"><i class="fa-solid fa-palette"></i> Acabado / Color</label>
+                        <div class="color-picker-grid">
+                            <button class="color-dot active" style="background-color: #3b82f6;" data-color="#3b82f6"></button>
+                            <button class="color-dot" style="background-color: #10b981;" data-color="#10b981"></button>
+                            <button class="color-dot" style="background-color: #ef4444;" data-color="#ef4444"></button>
+                            <button class="color-dot" style="background-color: #f59e0b;" data-color="#f59e0b"></button>
+                            <button class="color-dot" style="background-color: #8b5cf6;" data-color="#8b5cf6"></button>
+                            <button class="color-dot" style="background-color: #475569;" data-color="#475569"></button>
+                            <button class="color-dot" style="background-color: #d97706;" data-color="#d97706"></button>
+                            <button class="color-dot" style="background-color: #1e293b;" data-color="#1e293b"></button>
+                        </div>
+                    </div>
+
+                    <!-- Acciones del Mueble -->
+                    <div class="inspector-actions">
+                        <button id="btn-duplicate" class="btn secondary">
+                            <i class="fa-solid fa-copy"></i> Duplicar
+                        </button>
+                        <button id="btn-delete" class="btn danger-btn">
+                            <i class="fa-solid fa-trash"></i> Eliminar
+                        </button>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- MODAL RESUMEN DE MEDIDAS -->
+        <div id="modal-summary" class="modal-overlay">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-list-check"></i> Resumen de Muebles y Medidas</h3>
+                    <button class="close-modal" id="btn-close-modal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <table class="summary-table">
+                        <thead>
+                            <tr>
+                                <th>Mueble</th>
+                                <th>Ancho (X)</th>
+                                <th>Alto (Y)</th>
+                                <th>Fondo (Z)</th>
+                                <th>Color</th>
+                            </tr>
+                        </thead>
+                        <tbody id="summary-table-body">
+                            <!-- Filas dinámicas -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 
-    <script>
-        const FURNITURE_CATALOG = [
-            {
-                id: 'sillon-nordico',
-                name: 'Sillón Escandinavo',
-                category: 'asientos',
-                icon: 'fa-chair',
-                dimensions: { width: 80, depth: 85, height: 95 }, // in cm
-                color: '#3b82f6',
-                meshType: 'chair'
-            },
-            {
-                id: 'sofa-3-plazas',
-                name: 'Sofá Moderno 3 Plazas',
-                category: 'asientos',
-                icon: 'fa-couch',
-                dimensions: { width: 210, depth: 90, height: 82 },
-                color: '#64748b',
-                meshType: 'sofa'
-            },
-            {
-                id: 'mesa-comedor',
-                name: 'Mesa Comedor Roble',
-                category: 'mesas',
-                icon: 'fa-table-cells-large',
-                dimensions: { width: 160, depth: 90, height: 76 },
-                color: '#f59e0b',
-                meshType: 'table'
-            },
-            {
-                id: 'mesa-centro',
-                name: 'Mesa de Centro Minimal',
-                category: 'mesas',
-                icon: 'fa-table',
-                dimensions: { width: 110, depth: 60, height: 42 },
-                color: '#1e293b',
-                meshType: 'coffee_table'
-            },
-            {
-                id: 'estanteria-modular',
-                name: 'Estantería Estilo Industrial',
-                category: 'almacenamiento',
-                icon: 'fa-border-all',
-                dimensions: { width: 100, depth: 40, height: 180 },
-                color: '#10b981',
-                meshType: 'bookshelf'
-            },
-            {
-                id: 'planta-monstera',
-                name: 'Planta Monstera AR',
-                category: 'decoracion',
-                icon: 'fa-plant-wilt',
-                dimensions: { width: 60, depth: 60, height: 110 },
-                color: '#10b981',
-                meshType: 'plant'
-            }
-        ];
-
-        // Global State variables
-        let scene, camera, renderer, controls;
-        let raycaster, mouse;
-        let groundPlane;
-        let placedFurniture = []; // Stores objects placed in scene
-        let selectedObject = null;
-        let isAspectLocked = true;
-        let showGlobalMeasures = false;
-        let isWebcamActive = false;
-        let webcamStream = null;
-
-        // Bounding Box Helper & Dimension Lines reference
-        let activeBoxHelper = null;
-        let activeDimensionLines = [];
-
-        function initThreeJS() {
-            const container = document.getElementById('canvas-container');
-            const width = container.clientWidth;
-            const height = container.clientHeight;
-
-            // Scene setup
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0a0f1d);
-
-            // Camera setup
-            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-            camera.position.set(2.5, 2.8, 3.8);
-
-            // Renderer setup
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-            renderer.setSize(width, height);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.shadowMap.enabled = true;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            container.appendChild(renderer.domElement);
-
-            // Orbit Controls
-            controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.maxPolarAngle = Math.PI / 2 - 0.02; // Keep camera above floor plane
-            controls.minDistance = 1;
-            controls.maxDistance = 15;
-            controls.target.set(0, 0.5, 0);
-
-            // Raycaster for object picking
-            raycaster = new THREE.Raycaster();
-            mouse = new THREE.Vector2();
-
-            // Lighting Setup
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
-            scene.add(ambientLight);
-
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            dirLight.position.set(5, 10, 7);
-            dirLight.castShadow = true;
-            dirLight.shadow.mapSize.width = 1024;
-            dirLight.shadow.mapSize.height = 1024;
-            dirLight.shadow.camera.near = 0.5;
-            dirLight.shadow.camera.far = 25;
-            scene.add(dirLight);
-
-            const pointLight = new THREE.PointLight(0x38bdf8, 0.4, 10);
-            pointLight.position.set(-3, 3, -2);
-            scene.add(pointLight);
-
-            // Ground AR Tracking Plane Grid
-            const gridHelper = new THREE.GridHelper(12, 24, 0x22c55e, 0x1e293b);
-            gridHelper.position.y = 0;
-            scene.add(gridHelper);
-
-            // Invisible Ground Plane for Raycasting placement
-            const planeGeo = new THREE.PlaneGeometry(20, 20);
-            planeGeo.rotateX(-Math.PI / 2);
-            const planeMat = new THREE.ShadowMaterial({ opacity: 0.25 });
-            groundPlane = new THREE.Mesh(planeGeo, planeMat);
-            groundPlane.receiveShadow = true;
-            scene.add(groundPlane);
-
-            // Event Listeners for Interaction
-            window.addEventListener('resize', onWindowResize);
-            renderer.domElement.addEventListener('pointerdown', onPointerDown);
-
-            // Populate initial catalog items
-            renderCatalog('all');
-
-            // Add default initial furniture item
-            addFurnitureToScene('sillon-nordico', new THREE.Vector3(0, 0, 0));
-
-            // Animation Loop
-            animate();
-        }
-
-        function createFurnitureMesh(itemData) {
-            const group = new THREE.Group();
-            const { width, depth, height } = itemData.dimensions;
-            // Convert cm to 3D world meters (100cm = 1m)
-            const w = width / 100;
-            const d = depth / 100;
-            const h = height / 100;
-
-            const material = new THREE.MeshStandardMaterial({
-                color: new THREE.Color(itemData.color),
-                roughness: 0.4,
-                metalness: 0.1
-            });
-
-            const woodMaterial = new THREE.MeshStandardMaterial({
-                color: 0x8b5a2b,
-                roughness: 0.6
-            });
-
-            switch (itemData.meshType) {
-                case 'chair': {
-                    // Seat
-                    const seatGeo = new THREE.BoxGeometry(w, h * 0.1, d);
-                    const seat = new THREE.Mesh(seatGeo, material);
-                    seat.position.y = h * 0.45;
-                    seat.castShadow = true;
-                    seat.receiveShadow = true;
-                    group.add(seat);
-
-                    // Backrest
-                    const backGeo = new THREE.BoxGeometry(w, h * 0.5, d * 0.12);
-                    const back = new THREE.Mesh(backGeo, material);
-                    back.position.set(0, h * 0.72, -d * 0.42);
-                    back.castShadow = true;
-                    group.add(back);
-
-                    // Legs
-                    const legRadius = Math.min(w, d) * 0.04;
-                    const legGeo = new THREE.CylinderGeometry(legRadius, legRadius * 0.7, h * 0.4, 8);
-                    const positions = [
-                        [w * 0.4, h * 0.2, d * 0.4],
-                        [-w * 0.4, h * 0.2, d * 0.4],
-                        [w * 0.4, h * 0.2, -d * 0.4],
-                        [-w * 0.4, h * 0.2, -d * 0.4]
-                    ];
-                    positions.forEach(pos => {
-                        const leg = new THREE.Mesh(legGeo, woodMaterial);
-                        leg.position.set(...pos);
-                        leg.castShadow = true;
-                        group.add(leg);
-                    });
-                    break;
-                }
-
-                case 'sofa': {
-                    // Base / Cushions
-                    const baseGeo = new THREE.BoxGeometry(w, h * 0.35, d);
-                    const base = new THREE.Mesh(baseGeo, material);
-                    base.position.y = h * 0.25;
-                    base.castShadow = true;
-                    group.add(base);
-
-                    // Backrest
-                    const backGeo = new THREE.BoxGeometry(w, h * 0.65, d * 0.25);
-                    const back = new THREE.Mesh(backGeo, material);
-                    back.position.set(0, h * 0.62, -d * 0.35);
-                    back.castShadow = true;
-                    group.add(back);
-
-                    // Armrests
-                    const armGeo = new THREE.BoxGeometry(w * 0.12, h * 0.45, d);
-                    const armLeft = new THREE.Mesh(armGeo, material);
-                    armLeft.position.set(-w * 0.44, h * 0.42, 0);
-                    const armRight = armLeft.clone();
-                    armRight.position.x = w * 0.44;
-                    group.add(armLeft, armRight);
-                    break;
-                }
-
-                case 'table':
-                case 'coffee_table': {
-                    // Table Top
-                    const topGeo = new THREE.BoxGeometry(w, h * 0.08, d);
-                    const top = new THREE.Mesh(topGeo, material);
-                    top.position.y = h - (h * 0.04);
-                    top.castShadow = true;
-                    group.add(top);
-
-                    // Legs
-                    const legRadius = Math.min(w, d) * 0.035;
-                    const legGeo = new THREE.CylinderGeometry(legRadius, legRadius, h * 0.92, 12);
-                    const positions = [
-                        [w * 0.42, (h * 0.92) / 2, d * 0.42],
-                        [-w * 0.42, (h * 0.92) / 2, d * 0.42],
-                        [w * 0.42, (h * 0.92) / 2, -d * 0.42],
-                        [-w * 0.42, (h * 0.92) / 2, -d * 0.42]
-                    ];
-                    positions.forEach(pos => {
-                        const leg = new THREE.Mesh(legGeo, woodMaterial);
-                        leg.position.set(...pos);
-                        leg.castShadow = true;
-                        group.add(leg);
-                    });
-                    break;
-                }
-
-                case 'bookshelf': {
-                    // Frame
-                    const frameGeo = new THREE.BoxGeometry(w, h, d);
-                    const frameMat = new THREE.MeshStandardMaterial({ color: 0x334155, wireframe: false });
-                    const frame = new THREE.Mesh(frameGeo, frameMat);
-                    frame.position.y = h / 2;
-                    frame.castShadow = true;
-                    group.add(frame);
-
-                    // Shelves
-                    const numShelves = 4;
-                    for (let i = 1; i < numShelves; i++) {
-                        const shelfGeo = new THREE.BoxGeometry(w * 0.92, h * 0.03, d * 0.9);
-                        const shelf = new THREE.Mesh(shelfGeo, woodMaterial);
-                        shelf.position.y = (h / numShelves) * i;
-                        group.add(shelf);
-                    }
-                    break;
-                }
-
-                case 'plant': {
-                    // Pot
-                    const potGeo = new THREE.CylinderGeometry(w * 0.35, w * 0.25, h * 0.4, 16);
-                    const potMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0 });
-                    const pot = new THREE.Mesh(potGeo, potMat);
-                    pot.position.y = h * 0.2;
-                    pot.castShadow = true;
-                    group.add(pot);
-
-                    // Leaves / Bush
-                    const leafGeo = new THREE.DodecahedronGeometry(w * 0.45, 1);
-                    const leafMat = new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.3 });
-                    const leaves = new THREE.Mesh(leafGeo, leafMat);
-                    leaves.position.y = h * 0.65;
-                    leaves.castShadow = true;
-                    group.add(leaves);
-                    break;
-                }
-
-                default: {
-                    const fallbackGeo = new THREE.BoxGeometry(w, h, d);
-                    const fallbackMesh = new THREE.Mesh(fallbackGeo, material);
-                    fallbackMesh.position.y = h / 2;
-                    group.add(fallbackMesh);
-                }
-            }
-
-            // Store metadata on group
-            group.userData = {
-                id: itemData.id + '_' + Date.now(),
-                catalogId: itemData.id,
-                name: itemData.name,
-                category: itemData.category,
-                dimensions: { ...itemData.dimensions }, // in cm
-                originalDimensions: { ...itemData.dimensions },
-                color: itemData.color,
-                meshType: itemData.meshType
-            };
-
-            return group;
-        }
-
-        function addFurnitureToScene(catalogId, position = new THREE.Vector3(0, 0, 0)) {
-            const itemData = FURNITURE_CATALOG.find(i => i.id === catalogId);
-            if (!itemData) return;
-
-            const furnitureGroup = createFurnitureMesh(itemData);
-            furnitureGroup.position.copy(position);
-
-            scene.add(furnitureGroup);
-            placedFurniture.push(furnitureGroup);
-
-            selectObject(furnitureGroup);
-            updateLabelsOverlay();
-        }
-
-        function selectObject(obj) {
-            if (selectedObject === obj) return;
-
-            selectedObject = obj;
-
-            if (selectedObject) {
-                highlightSelectedObject(selectedObject);
-                openConfigPanel(selectedObject);
-            } else {
-                removeBoundingHelper();
-                closeConfigPanel();
-            }
-        }
-
-        function highlightSelectedObject(obj) {
-            removeBoundingHelper();
-
-            // Create Box Helper for active selection
-            activeBoxHelper = new THREE.BoxHelper(obj, 0x22c55e);
-            scene.add(activeBoxHelper);
-        }
-
-        function removeBoundingHelper() {
-            if (activeBoxHelper) {
-                scene.remove(activeBoxHelper);
-                activeBoxHelper = null;
-            }
-        }
-
-        function openConfigPanel(obj) {
-            const panel = document.getElementById('config-panel');
-            const data = obj.userData;
-
-            // Fill item metadata
-            document.getElementById('selected-item-name').innerText = data.name;
-            document.getElementById('selected-item-category').innerText = `Categoría: ${data.category.toUpperCase()}`;
-
-            // Fill Inputs
-            document.getElementById('input-width').value = Math.round(data.dimensions.width);
-            document.getElementById('slider-width').value = Math.round(data.dimensions.width);
-
-            document.getElementById('input-depth').value = Math.round(data.dimensions.depth);
-            document.getElementById('slider-depth').value = Math.round(data.dimensions.depth);
-
-            document.getElementById('input-height').value = Math.round(data.dimensions.height);
-            document.getElementById('slider-height').value = Math.round(data.dimensions.height);
-
-            // Rotation text
-            const rotDeg = Math.round((obj.rotation.y * 180) / Math.PI) % 360;
-            document.getElementById('rotation-val-text').innerText = `${rotDeg < 0 ? rotDeg + 360 : rotDeg}°`;
-
-            // Display panel
-            panel.classList.remove('translate-x-[110%]', 'opacity-0');
-            panel.classList.add('translate-x-0', 'opacity-100');
-        }
-
-        function closeConfigPanel() {
-            const panel = document.getElementById('config-panel');
-            panel.classList.add('translate-x-[110%]', 'opacity-0');
-            panel.classList.remove('translate-x-0', 'opacity-100');
-            selectedObject = null;
-            removeBoundingHelper();
-        }
-
-        function updateObjectDimension(axis, newValueCm) {
-            if (!selectedObject) return;
-
-            const data = selectedObject.userData;
-            const oldVal = data.dimensions[axis];
-            if (oldVal === newValueCm || newValueCm <= 0) return;
-
-            const ratio = newValueCm / oldVal;
-
-            if (isAspectLocked) {
-                // Scale uniformly across X, Y, Z
-                data.dimensions.width = Math.round(data.dimensions.width * ratio);
-                data.dimensions.depth = Math.round(data.dimensions.depth * ratio);
-                data.dimensions.height = Math.round(data.dimensions.height * ratio);
-
-                selectedObject.scale.multiplyScalar(ratio);
-            } else {
-                // Scale independently
-                data.dimensions[axis] = Math.round(newValueCm);
-
-                const scaleX = data.dimensions.width / data.originalDimensions.width;
-                const scaleY = data.dimensions.height / data.originalDimensions.height;
-                const scaleZ = data.dimensions.depth / data.originalDimensions.depth;
-
-                selectedObject.scale.set(scaleX, scaleY, scaleZ);
-            }
-
-            // Sync Inputs
-            document.getElementById('input-width').value = data.dimensions.width;
-            document.getElementById('slider-width').value = data.dimensions.width;
-            document.getElementById('input-depth').value = data.dimensions.depth;
-            document.getElementById('slider-depth').value = data.dimensions.depth;
-            document.getElementById('input-height').value = data.dimensions.height;
-            document.getElementById('slider-height').value = data.dimensions.height;
-
-            if (activeBoxHelper) activeBoxHelper.update();
-            updateLabelsOverlay();
-        }
-
-        function updateLabelsOverlay() {
-            const container = document.getElementById('labels-container');
-            container.innerHTML = ''; // Clear existing DOM labels
-
-            const objectsToMeasure = showGlobalMeasures
-                ? placedFurniture
-                : (selectedObject ? [selectedObject] : []);
-
-            objectsToMeasure.forEach(obj => {
-                const bbox = new THREE.Box3().setFromObject(obj);
-                const center = new THREE.Vector3();
-                bbox.getCenter(center);
-
-                // Dimension values in cm
-                const dims = obj.userData.dimensions;
-                const labelText = `${Math.round(dims.width)} × ${Math.round(dims.depth)} × ${Math.round(dims.height)} cm`;
-
-                // Project center point to screen coordinates
-                const projPos = center.clone().add(new THREE.Vector3(0, (bbox.max.y - bbox.min.y) / 2 + 0.25, 0));
-                projPos.project(camera);
-
-                // Check if behind camera
-                if (projPos.z > 1) return;
-
-                const x = (projPos.x * 0.5 + 0.5) * window.innerWidth;
-                const y = (-(projPos.y * 0.5) + 0.5) * window.innerHeight;
-
-                const labelEl = document.createElement('div');
-                labelEl.className = 'measurement-label';
-                labelEl.style.left = `${x}px`;
-                labelEl.style.top = `${y}px`;
-                labelEl.innerHTML = `<i class="fa-solid fa-vector-square mr-1 text-emerald-400"></i> ${labelText}`;
-
-                container.appendChild(labelEl);
-            });
-        }
-
-        function onPointerDown(event) {
-            // Ignore click if clicking UI controls
-            if (event.target.closest('#catalog-drawer') ||
-                event.target.closest('#config-panel') ||
-                event.target.closest('header') ||
-                event.target.closest('button')) return;
-
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-            raycaster.setFromCamera(mouse, camera);
-
-            // Check intersection with placed furniture
-            const intersects = raycaster.intersectObjects(placedFurniture, true);
-
-            if (intersects.length > 0) {
-                // Find top-level furniture group
-                let target = intersects[0].object;
-                while (target.parent && target.parent !== scene) {
-                    target = target.parent;
-                }
-                selectObject(target);
-            } else {
-                // Deselect if clicked on empty ground
-                selectObject(null);
-            }
-        }
-
-        function renderCatalog(category = 'all') {
-            const catalogList = document.getElementById('catalog-list');
-            catalogList.innerHTML = '';
-
-            const filtered = category === 'all'
-                ? FURNITURE_CATALOG
-                : FURNITURE_CATALOG.filter(item => item.category === category);
-
-            filtered.forEach(item => {
-                const card = document.createElement('div');
-                card.className = 'glass-card p-3 rounded-2xl flex items-center justify-between gap-3 cursor-pointer group hover:border-brand-500/50';
-                card.setAttribute('draggable', 'true');
-
-                card.innerHTML = `
-                    <div class="flex items-center gap-3 min-w-0">
-                        <div class="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-lg text-brand-400 group-hover:scale-110 transition">
-                            <i class="fa-solid ${item.icon}"></i>
-                        </div>
-                        <div class="min-w-0">
-                            <h4 class="font-semibold text-xs text-slate-100 truncate">${item.name}</h4>
-                            <p class="text-[11px] text-slate-400">${item.dimensions.width}×${item.dimensions.depth}×${item.dimensions.height} cm</p>
-                        </div>
-                    </div>
-                    <button class="add-btn bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-slate-950 p-2 rounded-xl text-xs transition flex items-center gap-1">
-                        <i class="fa-solid fa-plus"></i>
-                    </button>
-                `;
-
-                // Drag & Drop events
-                card.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('text/plain', item.id);
-                });
-
-                // Click to add button
-                card.querySelector('.add-btn').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const spawnPos = new THREE.Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
-                    addFurnitureToScene(item.id, spawnPos);
-                });
-
-                catalogList.appendChild(card);
-            });
-        }
-
-        function setupCanvasDragAndDrop() {
-            const container = document.getElementById('canvas-container');
-
-            container.addEventListener('dragover', (e) => e.preventDefault());
-
-            container.addEventListener('drop', (e) => {
-                e.preventDefault();
-                const catalogId = e.dataTransfer.getData('text/plain');
-                if (!catalogId) return;
-
-                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-
-                raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObject(groundPlane);
-
-                if (intersects.length > 0) {
-                    addFurnitureToScene(catalogId, intersects[0].point);
-                } else {
-                    addFurnitureToScene(catalogId, new THREE.Vector3(0, 0, 0));
-                }
-            });
-        }
-
-        function openSummaryModal() {
-            const modal = document.getElementById('modal-summary');
-            const content = document.getElementById('modal-summary-content');
-            const countEl = document.getElementById('summary-count');
-
-            content.innerHTML = '';
-            countEl.innerText = placedFurniture.length;
-
-            if (placedFurniture.length === 0) {
-                content.innerHTML = `
-                    <div class="text-center py-8 text-slate-500 text-xs">
-                        <i class="fa-solid fa-box-open text-3xl mb-2 text-slate-600 block"></i>
-                        No has añadido ningún mueble al espacio todavía.
-                    </div>
-                `;
-            } else {
-                placedFurniture.forEach((obj, idx) => {
-                    const data = obj.userData;
-                    const itemCard = document.createElement('div');
-                    itemCard.className = 'glass-card p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs';
-                    itemCard.innerHTML = `
-                        <div class="flex items-center gap-3">
-                            <span class="w-6 h-6 rounded-lg bg-slate-800 text-brand-400 font-bold flex items-center justify-center text-[11px] border border-slate-700">${idx + 1}</span>
-                            <div>
-                                <h4 class="font-bold text-slate-100">${data.name}</h4>
-                                <p class="text-[11px] text-slate-400">Categoría: ${data.category}</p>
-                            </div>
-                        </div>
-                        <div class="text-right">
-                            <span class="font-mono text-brand-400 font-bold text-xs block">${data.dimensions.width} × ${data.dimensions.depth} × ${data.dimensions.height} cm</span>
-                            <span class="text-[10px] text-slate-500">Ancho × Fondo × Alto</span>
-                        </div>
-                    `;
-                    content.appendChild(itemCard);
-                });
-            }
-
-            modal.classList.remove('hidden');
-            setTimeout(() => modal.classList.remove('opacity-0'), 10);
-        }
-
-        function closeSummaryModal() {
-            const modal = document.getElementById('modal-summary');
-            modal.classList.add('opacity-0');
-            setTimeout(() => modal.classList.add('hidden'), 200);
-        }
-
-        async function toggleWebcam() {
-            const video = document.getElementById('webcam-video');
-            const statusText = document.getElementById('ar-status-text');
-
-            if (!isWebcamActive) {
-                try {
-                    webcamStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                    video.srcObject = webcamStream;
-                    video.classList.remove('hidden');
-                    scene.background = null; // Make Three.js transparent
-                    isWebcamActive = true;
-                    statusText.innerText = "Cámara Real AR Activa";
-                } catch (err) {
-                    console.warn("Camera access denied or unavailable, showing simulated camera room background.");
-                    // Fallback visual simulation
-                    scene.background = new THREE.Color(0x111827);
-                    statusText.innerText = "Modo Simulación AR";
-                }
-            } else {
-                if (webcamStream) {
-                    webcamStream.getTracks().forEach(track => track.stop());
-                }
-                video.classList.add('hidden');
-                scene.background = new THREE.Color(0x0a0f1d);
-                isWebcamActive = false;
-                statusText.innerText = "Plano Detección Activo";
-            }
-        }
-
-        function onWindowResize() {
-            const container = document.getElementById('canvas-container');
-            camera.aspect = container.clientWidth / container.clientHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(container.clientWidth, container.clientHeight);
-            updateLabelsOverlay();
-        }
-
-        function animate() {
-            requestAnimationFrame(animate);
-
-            controls.update();
-
-            if (activeBoxHelper) {
-                activeBoxHelper.update();
-            }
-
-            updateLabelsOverlay();
-
-            renderer.render(scene, camera);
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            initThreeJS();
-            setupCanvasDragAndDrop();
-
-            // Category Filter Buttons
-            document.querySelectorAll('.cat-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    document.querySelectorAll('.cat-btn').forEach(b => {
-                        b.classList.remove('bg-brand-600', 'text-slate-950', 'font-semibold');
-                        b.classList.add('bg-slate-800', 'text-slate-300');
-                    });
-                    e.target.classList.remove('bg-slate-800', 'text-slate-300');
-                    e.target.classList.add('bg-brand-600', 'text-slate-950', 'font-semibold');
-
-                    renderCatalog(e.target.getAttribute('data-cat'));
-                });
-            });
-
-            // Dimension Slider & Numerical Input Listeners
-            ['width', 'depth', 'height'].forEach(axis => {
-                const slider = document.getElementById(`slider-${axis}`);
-                const input = document.getElementById(`input-${axis}`);
-
-                slider.addEventListener('input', (e) => {
-                    updateObjectDimension(axis, parseFloat(e.target.value));
-                });
-
-                input.addEventListener('change', (e) => {
-                    updateObjectDimension(axis, parseFloat(e.target.value));
-                });
-            });
-
-            // Proportional Aspect Toggle Button
-            document.getElementById('btn-toggle-aspect').addEventListener('click', () => {
-                isAspectLocked = !isAspectLocked;
-                const icon = document.getElementById('aspect-lock-icon');
-                const text = document.getElementById('aspect-lock-text');
-
-                if (isAspectLocked) {
-                    icon.className = "fa-solid fa-link text-[10px]";
-                    text.innerText = "Proporcional";
-                } else {
-                    icon.className = "fa-solid fa-link-slash text-[10px]";
-                    text.innerText = "Libre";
-                }
-            });
-
-            // Rotation Buttons
-            document.getElementById('btn-rotate-left').addEventListener('click', () => {
-                if (selectedObject) {
-                    selectedObject.rotation.y -= Math.PI / 4;
-                    const rotDeg = Math.round((selectedObject.rotation.y * 180) / Math.PI) % 360;
-                    document.getElementById('rotation-val-text').innerText = `${rotDeg < 0 ? rotDeg + 360 : rotDeg}°`;
-                }
-            });
-
-            document.getElementById('btn-rotate-right').addEventListener('click', () => {
-                if (selectedObject) {
-                    selectedObject.rotation.y += Math.PI / 4;
-                    const rotDeg = Math.round((selectedObject.rotation.y * 180) / Math.PI) % 360;
-                    document.getElementById('rotation-val-text').innerText = `${rotDeg < 0 ? rotDeg + 360 : rotDeg}°`;
-                }
-            });
-
-            // Scale Presets
-            document.querySelectorAll('.btn-preset-scale').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    if (!selectedObject) return;
-                    const scaleFactor = parseFloat(e.target.getAttribute('data-scale'));
-                    const data = selectedObject.userData;
-
-                    data.dimensions.width = Math.round(data.originalDimensions.width * scaleFactor);
-                    data.dimensions.depth = Math.round(data.originalDimensions.depth * scaleFactor);
-                    data.dimensions.height = Math.round(data.originalDimensions.height * scaleFactor);
-
-                    selectedObject.scale.set(scaleFactor, scaleFactor, scaleFactor);
-
-                    // Sync panel
-                    document.getElementById('input-width').value = data.dimensions.width;
-                    document.getElementById('slider-width').value = data.dimensions.width;
-                    document.getElementById('input-depth').value = data.dimensions.depth;
-                    document.getElementById('slider-depth').value = data.dimensions.depth;
-                    document.getElementById('input-height').value = data.dimensions.height;
-                    document.getElementById('slider-height').value = data.dimensions.height;
-
-                    if (activeBoxHelper) activeBoxHelper.update();
-                    updateLabelsOverlay();
-                });
-            });
-
-            // Color Finish Options
-            document.querySelectorAll('.color-opt').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    if (!selectedObject) return;
-                    const hexColor = e.target.getAttribute('data-color');
-                    selectedObject.userData.color = hexColor;
-
-                    selectedObject.traverse((child) => {
-                        if (child.isMesh && child.material) {
-                            child.material.color.set(hexColor);
-                        }
-                    });
-
-                    document.querySelectorAll('.color-opt').forEach(b => b.classList.replace('border-white', 'border-transparent'));
-                    e.target.classList.replace('border-transparent', 'border-white');
-                });
-            });
-
-            // Duplicate Furniture
-            document.getElementById('btn-duplicate-item').addEventListener('click', () => {
-                if (!selectedObject) return;
-                const data = selectedObject.userData;
-                const newPos = selectedObject.position.clone().add(new THREE.Vector3(0.3, 0, 0.3));
-                addFurnitureToScene(data.catalogId, newPos);
-            });
-
-            // Delete Furniture
-            document.getElementById('btn-delete-item').addEventListener('click', () => {
-                if (!selectedObject) return;
-                scene.remove(selectedObject);
-                placedFurniture = placedFurniture.filter(item => item !== selectedObject);
-                selectObject(null);
-                updateLabelsOverlay();
-            });
-
-            // Action Buttons
-            document.getElementById('btn-close-config').addEventListener('click', closeConfigPanel);
-            document.getElementById('btn-clear-selection').addEventListener('click', () => selectObject(null));
-            document.getElementById('btn-export-plan').addEventListener('click', openSummaryModal);
-            document.getElementById('btn-close-modal').addEventListener('click', closeSummaryModal);
-            document.getElementById('btn-toggle-camera').addEventListener('click', toggleWebcam);
-
-            // Toggle All Measures Button
-            document.getElementById('btn-toggle-all-measures').addEventListener('click', () => {
-                showGlobalMeasures = !showGlobalMeasures;
-                const btn = document.getElementById('btn-toggle-all-measures');
-                if (showGlobalMeasures) {
-                    btn.classList.add('bg-brand-900/60', 'border-brand-500');
-                } else {
-                    btn.classList.remove('bg-brand-900/60', 'border-brand-500');
-                }
-                updateLabelsOverlay();
-            });
-
-            // Reset Scene
-            document.getElementById('btn-reset-scene').addEventListener('click', () => {
-                placedFurniture.forEach(item => scene.remove(item));
-                placedFurniture = [];
-                selectObject(null);
-                updateLabelsOverlay();
-            });
-
-            // Copy Summary to Clipboard
-            document.getElementById('btn-copy-summary').addEventListener('click', () => {
-                if (placedFurniture.length === 0) return;
-                let summaryText = " Resumen de Muebles y Medidas (DecorAR):\n\n";
-                placedFurniture.forEach((item, i) => {
-                    const d = item.userData.dimensions;
-                    summaryText += `${i + 1}. ${item.userData.name}: ${d.width} cm (Ancho) × ${d.depth} cm (Fondo) × ${d.height} cm (Alto)\n`;
-                });
-
-                // Fallback copy execCommand for iframe compatibility
-                const textarea = document.createElement('textarea');
-                textarea.value = summaryText;
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-
-                const btn = document.getElementById('btn-copy-summary');
-                btn.innerHTML = `<i class="fa-solid fa-check"></i> ¡Copiado!`;
-                setTimeout(() => {
-                    btn.innerHTML = `<i class="fa-solid fa-copy"></i> Copiar Lista`;
-                }, 2000);
-            });
-
-            // Snapshot Action Simulation
-            document.getElementById('btn-snapshot').addEventListener('click', () => {
-                const toast = document.getElementById('ar-instruction-toast');
-                toast.innerHTML = `
-                    <div class="glass-panel px-4 py-2 rounded-full text-xs font-medium text-emerald-400 flex items-center gap-2 shadow-2xl border-emerald-500/50">
-                        <i class="fa-solid fa-circle-check"></i>
-                        <span>Captura de espacio guardada en alta resolución</span>
-                    </div>
-                `;
-                setTimeout(() => {
-                    toast.innerHTML = `
-                        <div class="glass-panel px-4 py-2 rounded-full text-xs font-medium text-slate-200 flex items-center gap-2 shadow-2xl border-brand-500/40">
-                            <i class="fa-solid fa-hand-pointer text-brand-500 animate-bounce"></i>
-                            <span>Arrastra un mueble del catálogo al suelo o haz clic sobre uno para configurarlo</span>
-                        </div>
-                    `;
-                }, 3000);
-            });
-        });
-    </script>
+    <script src="script.js"></script>
 </body>
 </html>
