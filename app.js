@@ -171,7 +171,7 @@ var floorPlane = new THREE.Plane(new THREE.Vector3(0,1,0),0);
 var raycaster = new THREE.Raycaster();
 
 /* Estado */
-var cfg = {h:140,fov:65,grid:true,measure:'sel',refDist:0.5};
+var cfg = {h:140,fov:65,grid:true,measure:'sel',refDist:1};
 var view = {yaw:0,pitch:40};
 var items = [], uid = 1, selected = null, lock = false, baseDim = null;
 var SW = 1, SH = 1;
@@ -403,18 +403,12 @@ $('#collapse').addEventListener('click',function(){
 var euler = new THREE.Euler(0,0,0,'YXZ');
 var gyro = {on:false,got:false,yaw0:null,q:new THREE.Quaternion()};
 var q1 = new THREE.Quaternion(-Math.SQRT1_2,0,0,Math.SQRT1_2), q0 = new THREE.Quaternion(), zee = new THREE.Vector3(0,0,1), eu = new THREE.Euler();
-var qYaw = new THREE.Quaternion(), Y_AXIS = new THREE.Vector3(0,1,0);
-
-/* Con el giroscopio activo, la cámara virtual copia la orientación REAL   */
-/* del móvil (inclinación, balanceo y giro). Así el suelo virtual queda    */
-/* fijo en el espacio mientras giras el teléfono.                          */
-function gyroActive(){ return gyro.on && gyro.got && gyro.yaw0!==null; }
 
 function applyCamera(){
   camera.position.set(0,cfg.h/100,0);
-  if(gyroActive()){
-    qYaw.setFromAxisAngle(Y_AXIS,-gyro.yaw0);
-    camera.quaternion.copy(qYaw).multiply(gyro.q);
+  if(gyro.on && gyro.got && gyro.yaw0!==null){
+    euler.setFromQuaternion(gyro.q,'YXZ'); euler.y -= gyro.yaw0;
+    camera.quaternion.setFromEuler(euler);
   }else{
     euler.set(-view.pitch*RAD,view.yaw,0,'YXZ');
     camera.quaternion.setFromEuler(euler);
@@ -433,7 +427,7 @@ function onOrient(e){
   }
 }
 var bGyro = $('#bGyro');
-function setGyro(on,quiet){
+function setGyro(on){
   if(!on){
     window.removeEventListener('deviceorientation',onOrient);
     gyro.on = false; bGyro.setAttribute('aria-pressed','false'); $('#sP').disabled = false;
@@ -452,29 +446,43 @@ function setGyro(on,quiet){
     bGyro.setAttribute('aria-pressed','true'); $('#sP').disabled = true;
     setTimeout(function(){
       if(gyro.on && !gyro.got){
-        if(!quiet) toast('Este dispositivo no envía datos de movimiento. Arrastra sobre la imagen para girar la vista.');
+        toast('Este dispositivo no envía datos de movimiento. Arrastra sobre la imagen para girar la vista.');
         setGyro(false);
       }
     },1800);
-  }).catch(function(){ if(!quiet) toast('No se pudo activar el giroscopio en este navegador.'); });
+  }).catch(function(){ toast('No se pudo activar el giroscopio en este navegador.'); });
 }
 bGyro.addEventListener('click',function(){ setGyro(!gyro.on); });
 
-/* Activa el giroscopio solo en móviles/tablets (con pantalla táctil).     */
-/* Debe llamarse directamente desde un toque del usuario (iOS lo exige).   */
-function autoGyro(){
-  if(gyro.on || typeof DeviceOrientationEvent==='undefined' || !(navigator.maxTouchPoints>0)) return Promise.resolve();
-  return setGyro(true,true);
-}
-/* Espera (como mucho ms) a que lleguen los primeros datos del sensor */
-function waitGyro(ms){
-  return new Promise(function(resolve){
-    var t0 = Date.now();
-    (function poll(){
-      if(gyroActive() || !gyro.on || Date.now()-t0>ms) resolve();
-      else setTimeout(poll,60);
-    })();
-  });
+/* Detección automática de la inclinación (sin toques) ---------------- */
+/* En cuanto se activa la cámara, si el navegador puede leer el sensor  */
+/* de movimiento del móvil, usamos la inclinación real del teléfono     */
+/* para ajustar solo el ángulo de la vista virtual al suelo. Esto no    */
+/* necesita ningún toque, pero solo funciona si el móvil sujeta la      */
+/* orientación de forma fiable; por eso "Calibrar suelo" (3 toques)     */
+/* sigue disponible para afinar o para navegadores sin este sensor.     */
+function attemptAutoTilt(){
+  if(typeof DeviceOrientationEvent==='undefined' || gyro.on) return;
+  var ask = Promise.resolve('granted');
+  try{
+    if(typeof DeviceOrientationEvent.requestPermission==='function'){
+      ask = DeviceOrientationEvent.requestPermission();
+    }
+  }catch(e){ ask = Promise.reject(e); }
+  ask.then(function(r){
+    if(r!=='granted') return;
+    var handled = false;
+    function once(e){
+      if(handled || e.beta==null) return;
+      handled = true;
+      window.removeEventListener('deviceorientation',once);
+      var p = clamp(90-Math.abs(e.beta),0,85);
+      view.pitch = p; syncSettings();
+      toast('Inclinación detectada automáticamente. Toca «Calibrar suelo» para ajustarlo con precisión.');
+    }
+    window.addEventListener('deviceorientation',once);
+    setTimeout(function(){ if(!handled) window.removeEventListener('deviceorientation',once); },1200);
+  }).catch(function(){ /* silencioso: seguirá disponible la calibración manual */ });
 }
 
 /* Ajustes */
@@ -491,7 +499,7 @@ sH.addEventListener('input',function(){ cfg.h = parseInt(sH.value,10); syncSetti
 sF.addEventListener('input',function(){ cfg.fov = parseInt(sF.value,10); syncSettings(); save(); });
 sP.addEventListener('input',function(){ view.pitch = parseInt(sP.value,10); syncSettings(); });
 sD.addEventListener('input',function(){ cfg.refDist = parseInt(sD.value,10)/100; syncSettings(); save(); });
-$('#sReset').addEventListener('click',function(){ cfg.h=140; cfg.fov=65; view.pitch=40; cfg.refDist=0.5; syncSettings(); save(); });
+$('#sReset').addEventListener('click',function(){ cfg.h=140; cfg.fov=65; view.pitch=40; cfg.refDist=1; syncSettings(); save(); });
 $('#bSet').addEventListener('click',function(){
   var pop = $('#settings'); pop.hidden = !pop.hidden;
   this.setAttribute('aria-pressed',String(!pop.hidden));
@@ -533,6 +541,7 @@ function startCamera(){
       if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
       stream = s; cam.srcObject = s; setBg('cam');
       var p = cam.play(); if(p&&p.catch) p.catch(function(){});
+      attemptAutoTilt();
       return true;
     })
     .catch(function(err){
@@ -543,7 +552,7 @@ function startCamera(){
     });
 }
 $('#bCam').addEventListener('click',function(){
-  if(bgMode==='cam') setBg('none'); else autoGyro().then(startCamera);
+  if(bgMode==='cam') setBg('none'); else startCamera();
 });
 var fileEl = $('#file');
 function pickPhoto(){ fileEl.click(); }
@@ -560,7 +569,7 @@ fileEl.addEventListener('change',function(){
   r.readAsDataURL(f); fileEl.value = '';
 });
 function closeWelcome(){ $('#welcome').hidden = true; }
-$('#wCam').addEventListener('click',function(){ autoGyro().then(startCamera).then(function(ok){ if(ok) closeWelcome(); }); });
+$('#wCam').addEventListener('click',function(){ startCamera().then(function(ok){ if(ok) closeWelcome(); }); });
 $('#wSkip').addEventListener('click',closeWelcome);
 
 function updateHorizon(){
@@ -607,159 +616,27 @@ function pick(cx,cy){
 }
 
 /* ------------------------------------------------------------------ */
-/* Calibración del suelo con 3 puntos                                  */
-/*                                                                     */
-/* Una sola foto no da profundidad, así que hacen falta dos cosas:     */
-/*  1) saber hacia dónde mira el móvil  -> giroscopio (o, sin él, se   */
-/*     calcula la inclinación a partir de los 3 puntos), y             */
-/*  2) una medida real -> los puntos 2 y 3 están a la «distancia de    */
-/*     referencia» del punto 1 (formando una L).                       */
-/* Con eso cada toque es un rayo que corta el suelo en un punto 3D.    */
-/* Los 3 puntos forman una superficie que se muestra unos segundos y   */
-/* luego se oculta. El suelo (plano y=0) queda anclado en el mundo: al */
-/* girar el móvil, el giroscopio mueve la cámara y el suelo se queda   */
-/* donde estaba.                                                       */
-/* ------------------------------------------------------------------ */
+/* Calibración manual del suelo (3 puntos)                             */
+/* No hay sensor de profundidad en un navegador normal, así que no se   */
+/* puede "ver" el suelo real. Como alternativa fiable, el usuario toca  */
+/* 3 puntos reales del suelo (con contraste: una esquina, una juntura   */
+/* de baldosas...) separados por la distancia de referencia de los      */
+/* ajustes, formando una escuadra en L. Con esos 3 puntos se resuelve   */
+/* numéricamente qué altura e inclinación de cámara hacen que la        */
+/* rejilla virtual coincida con el suelo real (un caso del problema      */
+/* clásico de pose de cámara a partir de 3 puntos, resuelto aquí con     */
+/* un optimizador Nelder-Mead en vez de una fórmula cerrada).            */
 var calibLayer = $('#calibLayer'), calibwrap = $('#calibwrap'), calibText = $('#calibText'), bCalib = $('#bCalib');
 var calibDotEls = $('#calibProgress').children;
-var calib = null; /* {mode:'pending'|'gyro'|'free', taps:[{ndc,dir,pos}]} */
-var CAL_HIDE_DELAY = 2600, CAL_FADE = 800;
-var fv = {hideAt:0};
+var calib = null; /* {pts:[Vector2,...]} en coordenadas NDC */
+var calibCam = new THREE.PerspectiveCamera(65,1,0.05,50);
 
-/*@@SOLVER_START*/
-/* Rayo (vector unitario en el mundo) que pasa por el punto de pantalla   */
-/* (nx,ny) en coordenadas NDC, con cámara inclinada pitchDeg hacia abajo  */
-/* y girada yaw radianes. Coincide con applyCamera() sin giroscopio.      */
-function ndcRay(nx,ny,fovDeg,aspect,pitchDeg,yaw){
-  var t = Math.tan(fovDeg*RAD/2), xv = nx*t*aspect, yv = ny*t;
-  var cp = Math.cos(pitchDeg*RAD), sp = Math.sin(pitchDeg*RAD);
-  var x = xv, y = yv*cp - sp, z = -yv*sp - cp;
-  var cy = Math.cos(yaw), sy = Math.sin(yaw);
-  var X = x*cy + z*sy, Z = -x*sy + z*cy;
-  var l = Math.sqrt(X*X + y*y + Z*Z);
-  return {x:X/l,y:y/l,z:Z/l};
-}
-/* Puntos del suelo donde caen los rayos si la cámara está a 1 m de altura */
-function floorHits(dirs){
-  var out = [];
-  for(var i=0;i<dirs.length;i++){
-    var d = dirs[i];
-    if(!(d.y < -0.02)) return null; /* el rayo no baja hasta el suelo */
-    var t = -1/d.y;
-    out.push({x:d.x*t,z:d.z*t});
-  }
-  return out;
-}
-/* Longitud de los dos brazos de la L y coseno del ángulo entre ellos */
-function legMetrics(P){
-  var ux=P[1].x-P[0].x, uz=P[1].z-P[0].z, vx=P[2].x-P[0].x, vz=P[2].z-P[0].z;
-  var a = Math.hypot(ux,uz), b = Math.hypot(vx,vz);
-  if(!(a>1e-6) || !(b>1e-6)) return null;
-  return {a:a,b:b,cos:(ux*vx+uz*vz)/(a*b)};
-}
-/* Altura de cámara (m) con la que ambos brazos miden justo d */
-function heightFor(m,d){ return d*(m.a+m.b)/(m.a*m.a+m.b*m.b); }
-function evalDirs(dirs,d){
-  var P = floorHits(dirs); if(!P) return null;
-  var m = legMetrics(P); if(!m) return null;
-  return {m:m,h:heightFor(m,d)};
-}
-/* Sin giroscopio: busca la inclinación con la que los 3 puntos forman una */
-/* L de brazos iguales y ángulo recto, y con una altura creíble.           */
-function evalPitch(ndcs,fov,aspect,d,pitch){
-  var dirs = ndcs.map(function(n){ return ndcRay(n.x,n.y,fov,aspect,pitch,0); });
-  var r = evalDirs(dirs,d);
-  if(!r || r.h<0.4 || r.h>2.6) return null;
-  var lg = Math.log(r.m.a/r.m.b);
-  return {e:lg*lg + r.m.cos*r.m.cos, h:r.h, p:pitch};
-}
-function solvePitch(ndcs,fov,aspect,d){
-  var best = null, p, r;
-  for(p=0;p<=85;p+=0.5){
-    r = evalPitch(ndcs,fov,aspect,d,p);
-    if(r && (!best || r.e<best.e)) best = r;
-  }
-  if(!best) return null;
-  var lo = Math.max(0,best.p-0.5), hi = Math.min(85,best.p+0.5);
-  for(p=lo;p<=hi+1e-9;p+=0.02){
-    r = evalPitch(ndcs,fov,aspect,d,p);
-    if(r && r.e<best.e) best = r;
-  }
-  return best;
-}
-/*@@SOLVER_END*/
-
-/* --- Superficie y puntos en 3D ------------------------------------- */
-var fvGroup = new THREE.Group(); fvGroup.visible = false; scene.add(fvGroup);
-var fvTriMat = new THREE.MeshBasicMaterial({color:TAPE,transparent:true,opacity:0.32,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
-var fvLineMat = new THREE.LineBasicMaterial({color:TAPE,transparent:true,opacity:1,depthTest:false});
-var fvTriGeo = new THREE.BufferGeometry(), fvLineGeo = new THREE.BufferGeometry();
-fvTriGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(9),3));
-fvLineGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(12),3));
-var fvTri = new THREE.Mesh(fvTriGeo,fvTriMat), fvLine = new THREE.Line(fvLineGeo,fvLineMat);
-[fvTri,fvLine].forEach(function(o){ o.frustumCulled = false; o.renderOrder = 8; fvGroup.add(o); });
-fvTri.visible = false; fvLineGeo.setDrawRange(0,0);
-
-function fvSet(points){
-  var n = points.length, pa = fvLineGeo.attributes.position, ta = fvTriGeo.attributes.position;
-  for(var i=0;i<n;i++){
-    pa.setXYZ(i,points[i].x,0.004,points[i].z);
-    ta.setXYZ(i,points[i].x,0.004,points[i].z);
-  }
-  if(n===3) pa.setXYZ(3,points[0].x,0.004,points[0].z);
-  pa.needsUpdate = true; ta.needsUpdate = true;
-  fvLineGeo.setDrawRange(0,n===3?4:n);
-  fvTri.visible = (n===3);
-  fvGroup.visible = (n>=2);
-}
-
-/* Circulitos numerados: se recolocan cada fotograma desde su posición 3D */
-var fvMarkers = [], _mv = new THREE.Vector3();
-function placeMarker(m){
-  var x, y;
-  if(m.pos){
-    _mv.set(m.pos.x,m.pos.y||0,m.pos.z).project(camera);
-    if(_mv.z>1 || _mv.z<-1){ m.el.style.visibility = 'hidden'; m.sx = m.sy = NaN; return; }
-    x = _mv.x; y = _mv.y;
-  }else{ x = m.ndc.x; y = m.ndc.y; }
-  m.sx = (x*0.5+0.5)*SW; m.sy = (-y*0.5+0.5)*SH;
-  m.el.style.visibility = 'visible';
-  m.el.style.transform = 'translate('+m.sx.toFixed(1)+'px,'+m.sy.toFixed(1)+'px)';
-}
-function addMarker(ndc,pos,n){
-  var d = document.createElement('div'); d.className = 'caldot'; d.style.left = '0'; d.style.top = '0';
-  var b = document.createElement('b'); b.textContent = String(n); d.appendChild(b);
-  calibLayer.appendChild(d);
-  var m = {el:d,pos:pos,ndc:ndc,sx:NaN,sy:NaN};
-  fvMarkers.push(m); placeMarker(m);
-  return m;
-}
-function clearFloorViz(){
-  fv.hideAt = 0;
-  fvGroup.visible = false; fvTri.visible = false; fvLineGeo.setDrawRange(0,0);
-  fvTriMat.opacity = 0.32; fvLineMat.opacity = 1;
-  fvMarkers.forEach(function(m){ m.el.remove(); });
-  fvMarkers = [];
-}
-function updateFloorViz(now){
-  if(!fvMarkers.length) return;
-  fvMarkers.forEach(placeMarker);
-  if(!fv.hideAt) return;
-  var k = (now-fv.hideAt)/CAL_FADE;
-  if(k<=0) return;
-  if(k>=1){ clearFloorViz(); return; }
-  var a = 1-k;
-  fvTriMat.opacity = 0.32*a; fvLineMat.opacity = a;
-  fvMarkers.forEach(function(m){ m.el.style.opacity = a.toFixed(2); });
-}
-
-/* --- Flujo de calibración ------------------------------------------ */
-function calibMsg(i,mode){
+function calibMsg(i){
   var cm = Math.round(cfg.refDist*100);
   return [
-    'Toca el punto 1 en el suelo (una esquina, una juntura de baldosas…).'+(mode==='gyro'?' Puedes girar el móvil, pero no te desplaces.':''),
-    'Punto 2: a '+cm+' cm del punto 1, en línea recta.',
-    'Punto 3: a '+cm+' cm del punto 1, en perpendicular al punto 2 (formando una L).'
+    'Toca un punto del suelo con buen contraste (una esquina, una juntura de baldosas...).',
+    'Ahora toca otro punto del suelo a '+cm+' cm en línea recta desde el primero.',
+    'Por último, toca un tercer punto a '+cm+' cm del primero, en dirección perpendicular al segundo.'
   ][i];
 }
 function setCalibProgress(n){
@@ -768,96 +645,137 @@ function setCalibProgress(n){
 function startCalibration(){
   if(bgMode==='none'){ toast('Activa antes la cámara o una foto de la habitación.'); return; }
   select(null);
-  clearFloorViz();
-  var mine = calib = {mode:'pending',taps:[]};
-  calibText.textContent = 'Preparando sensores…';
+  calib = {pts:[]};
+  calibLayer.innerHTML = '';
+  calibText.textContent = calibMsg(0);
   setCalibProgress(0);
   calibwrap.hidden = false;
   bCalib.setAttribute('aria-pressed','true');
-  /* Con la cámara en vivo se activa el giroscopio (si existe) para que el suelo siga al móvil */
-  var pre = (bgMode==='cam' && !gyroActive()) ? autoGyro().then(function(){ return waitGyro(1500); }) : Promise.resolve();
-  pre.then(function(){
-    if(calib!==mine) return; /* cancelada mientras tanto */
-    mine.mode = gyroActive() ? 'gyro' : 'free';
-    calibText.textContent = calibMsg(0,mine.mode);
-  });
 }
 function cancelCalibration(){
-  calib = null; calibwrap.hidden = true; clearFloorViz();
+  calib = null; calibwrap.hidden = true; calibLayer.innerHTML = '';
   bCalib.setAttribute('aria-pressed','false');
+}
+function addCalibDot(cx,cy,n){
+  var r = stage.getBoundingClientRect();
+  var d = document.createElement('div'); d.className = 'caldot';
+  d.style.left = (cx-r.left)+'px'; d.style.top = (cy-r.top)+'px';
+  var b = document.createElement('b'); b.textContent = String(n); d.appendChild(b);
+  calibLayer.appendChild(d);
 }
 $('#bCalib').addEventListener('click',function(){ if(calib) cancelCalibration(); else startCalibration(); });
 $('#calibCancel').addEventListener('click',cancelCalibration);
 
-function calibTap(cx,cy){
-  if(!calib || calib.mode==='pending') return;
-  var ndc = ndcFrom(cx,cy), n = calib.taps.length, i;
-  var px = (ndc.x*0.5+0.5)*SW, py = (-ndc.y*0.5+0.5)*SH;
-  for(i=0;i<fvMarkers.length;i++){
-    if(Math.hypot(fvMarkers[i].sx-px,fvMarkers[i].sy-py)<28){
-      toast('Ese punto está demasiado cerca de otro. Toca puntos más separados.'); return;
+/* Optimizador Nelder-Mead genérico (sin dependencias) */
+function nelderMead(f,x0,opts){
+  opts = opts||{};
+  var n = x0.length, maxIter = opts.maxIter||300, tol = opts.tol||1e-10;
+  var alpha=1, gamma=2, rho=0.5, sigma=0.5;
+  var simplex = [x0.slice()], fvals;
+  for(var i=0;i<n;i++){
+    var xi = x0.slice(); xi[i] += (xi[i]!==0 ? Math.abs(xi[i])*0.12 : 0.12);
+    simplex.push(xi);
+  }
+  fvals = simplex.map(f);
+  for(var iter=0; iter<maxIter; iter++){
+    var idx = fvals.map(function(v,i){ return i; }).sort(function(a,b){ return fvals[a]-fvals[b]; });
+    simplex = idx.map(function(i){ return simplex[i]; });
+    fvals = idx.map(function(i){ return fvals[i]; });
+    if(Math.abs(fvals[n]-fvals[0]) < tol) break;
+    var centroid = new Array(n).fill(0);
+    for(i=0;i<n;i++){ for(var j=0;j<n;j++) centroid[j]+=simplex[i][j]; }
+    for(j=0;j<n;j++) centroid[j]/=n;
+    var worst = simplex[n];
+    var xr = centroid.map(function(c,j){ return c+alpha*(c-worst[j]); });
+    var fr = f(xr);
+    if(fr < fvals[0]){
+      var xe = centroid.map(function(c,j){ return c+gamma*(c-worst[j]); });
+      var fe = f(xe);
+      if(fe<fr){ simplex[n]=xe; fvals[n]=fe; } else { simplex[n]=xr; fvals[n]=fr; }
+    }else if(fr < fvals[n-1]){
+      simplex[n]=xr; fvals[n]=fr;
+    }else{
+      var xc = centroid.map(function(c,j){ return c+rho*(worst[j]-c); });
+      var fc = f(xc);
+      if(fc<fvals[n]){ simplex[n]=xc; fvals[n]=fc; }
+      else{
+        for(i=1;i<=n;i++){
+          simplex[i] = simplex[i].map(function(v,j){ return simplex[0][j]+sigma*(v-simplex[0][j]); });
+          fvals[i] = f(simplex[i]);
+        }
+      }
     }
   }
-  var tap = {ndc:ndc,dir:null,pos:null};
-  if(calib.mode==='gyro'){
-    /* Con el giroscopio ya sabemos hacia dónde apunta cada toque en el mundo */
-    raycaster.setFromCamera(ndc,camera);
-    var dir = raycaster.ray.direction.clone();
-    if(dir.y>-0.08){ toast('Ese punto queda casi a la altura del horizonte. Toca un punto del suelo más cercano.'); return; }
-    var t = -camera.position.y/dir.y;
-    tap.dir = dir; tap.pos = new THREE.Vector3(dir.x*t,0,dir.z*t);
-  }
-  calib.taps.push(tap);
-  addMarker(ndc,tap.pos,n+1);
-  setCalibProgress(n+1);
-  if(calib.mode==='gyro') fvSet(calib.taps.map(function(k){ return k.pos; }));
-  if(n+1<3){ calibText.textContent = calibMsg(n+1,calib.mode); return; }
-  finishCalibration();
+  var best = fvals.map(function(v,i){ return i; }).sort(function(a,b){ return fvals[a]-fvals[b]; })[0];
+  return {x:simplex[best], f:fvals[best]};
 }
 
-function calibFail(){
-  toast('No se pudo calibrar: los 3 puntos no encajan en una L sobre el suelo. Repite tocando puntos más separados y bien definidos.');
-  clearFloorViz();
+/* Error de reproyección: dados (altura, inclinación, giro de la L,      */
+/* posición del punto O), ¿coinciden O/A/B proyectados con los toques?   */
+function calibProjErr(params, pts){
+  var h=params[0], pitchDeg=params[1], thetaDeg=params[2], ox=params[3], oz=params[4];
+  if(h<50||h>250||pitchDeg<-15||pitchDeg>89) return 1e6;
+  calibCam.fov = camera.fov; calibCam.aspect = camera.aspect; calibCam.near = 0.05; calibCam.far = 50;
+  calibCam.updateProjectionMatrix();
+  calibCam.position.set(0,h/100,0);
+  calibCam.quaternion.setFromEuler(new THREE.Euler(-pitchDeg*RAD,0,0,'YXZ'));
+  calibCam.updateMatrixWorld(true);
+  var th = thetaDeg*RAD, cos=Math.cos(th), sin=Math.sin(th), d = cfg.refDist;
+  var local = [[0,0],[1,0],[0,1]], err = 0, v = new THREE.Vector3();
+  for(var i=0;i<3;i++){
+    var lx=local[i][0]*d, lz=local[i][1]*d;
+    var wx = ox + lx*cos - lz*sin, wz = oz + lx*sin + lz*cos;
+    v.set(wx,0,wz).project(calibCam);
+    if(v.z>1||v.z<-1||!isFinite(v.x)||!isFinite(v.y)) return 1e6;
+    var dx=v.x-pts[i].x, dy=v.y-pts[i].y;
+    err += dx*dx+dy*dy;
+  }
+  return err;
 }
-function finishCalibration(){
-  var c = calib, taps = c.taps, d = cfg.refDist, dirs, pitch = null;
-  calibwrap.hidden = true; calib = null; bCalib.setAttribute('aria-pressed','false');
-  if(c.mode==='gyro'){
-    dirs = taps.map(function(t){ return t.dir; });
-  }else{
-    var s = solvePitch(taps.map(function(t){ return t.ndc; }),camera.fov,camera.aspect,d);
-    if(!s){ calibFail(); return; }
-    pitch = s.p;
-    dirs = taps.map(function(t){ return ndcRay(t.ndc.x,t.ndc.y,camera.fov,camera.aspect,pitch,view.yaw); });
-  }
-  var res = evalDirs(dirs,d);
-  if(!res || !(res.h>=0.4 && res.h<=2.6)){ calibFail(); return; }
-
-  cfg.h = Math.round(res.h*100);
-  if(pitch!==null) view.pitch = clamp(pitch,0,85);
-  /* Los 3 puntos definitivos, sobre el suelo (y = 0) */
-  var hm = cfg.h/100;
-  var pts = dirs.map(function(dd){ var t = -hm/dd.y; return new THREE.Vector3(dd.x*t,0,dd.z*t); });
-  fvMarkers.forEach(function(m,i){ m.pos = pts[i]; });
-  fvSet(pts);
-  fv.hideAt = performance.now()+CAL_HIDE_DELAY; /* se muestra un momento y se oculta */
-  syncSettings(); save();
-
-  var m = res.m, ang = Math.acos(clamp(m.cos,-1,1))/RAD;
-  var good = Math.abs(ang-90)<=12 && Math.max(m.a,m.b)/Math.min(m.a,m.b)<=1.25;
-  if(!good){
-    toast('Suelo calibrado con poca precisión: los 3 puntos no forman una L de '+Math.round(d*100)+' cm. Repite con puntos más separados y bien definidos.');
-  }else if(c.mode==='gyro'){
-    toast('Suelo calibrado: el móvil está a unos '+cfg.h+' cm del suelo. La superficie se ocultará y el suelo seguirá al móvil al girarlo.');
-  }else{
-    toast('Suelo calibrado (altura ≈ '+cfg.h+' cm, inclinación ≈ '+Math.round(view.pitch)+'°). La superficie se ocultará.');
-  }
+function solveFloorCalibration(pts){
+  var best = null;
+  [0,90,180,270].forEach(function(t0){
+    [-1.5,-2.5,-3.5].forEach(function(oz0){
+      var res = nelderMead(function(x){ return calibProjErr(x,pts); },[cfg.h,view.pitch,t0,0,oz0],{maxIter:220});
+      if(!best || res.f<best.f) best = res;
+    });
+  });
+  /* refinamiento final desde el mejor punto encontrado */
+  best = nelderMead(function(x){ return calibProjErr(x,pts); }, best.x, {maxIter:200,tol:1e-12});
+  return best;
+}
+function finishCalibration(pts){
+  calibwrap.hidden = true; calibLayer.innerHTML = ''; calib = null;
+  bCalib.setAttribute('aria-pressed','false');
+  toast('Calculando…');
+  setTimeout(function(){
+    var best = solveFloorCalibration(pts);
+    if(!best || !isFinite(best.f)){
+      toast('No se pudo calibrar. Prueba a tocar 3 puntos más separados y con más contraste.');
+      return;
+    }
+    var h = clamp(best.x[0],80,220), pitch = clamp(best.x[1],0,85);
+    cfg.h = Math.round(h); view.pitch = pitch;
+    syncSettings(); save();
+    if(best.f > 0.02){
+      toast('Suelo calibrado, pero con poca precisión. Repite tocando puntos más separados y bien definidos.');
+    }else{
+      toast('Suelo calibrado correctamente.');
+    }
+  },30);
 }
 
 var drag = null;
 canvas.addEventListener('pointerdown',function(e){
   if(!e.isPrimary) return;
-  if(calib){ calibTap(e.clientX,e.clientY); return; }
+  if(calib){
+    addCalibDot(e.clientX,e.clientY,calib.pts.length+1);
+    calib.pts.push(ndcFrom(e.clientX,e.clientY));
+    setCalibProgress(calib.pts.length);
+    if(calib.pts.length<3){ calibText.textContent = calibMsg(calib.pts.length); }
+    else{ var pts = calib.pts; finishCalibration(pts); }
+    return;
+  }
   try{ canvas.setPointerCapture(e.pointerId); }catch(_){}
   var hit = pick(e.clientX,e.clientY);
   drag = {id:e.pointerId,sx:e.clientX,sy:e.clientY,lx:e.clientX,ly:e.clientY,moved:false,item:hit,ox:0,oz:0};
@@ -968,7 +886,7 @@ function restore(){
   try{
     var s = JSON.parse(localStorage.getItem(KEY)||'null'); if(!s) return;
     if(s.cfg){
-      if(isFinite(s.cfg.h)) cfg.h = clamp(s.cfg.h,40,260);
+      if(isFinite(s.cfg.h)) cfg.h = clamp(s.cfg.h,80,220);
       if(isFinite(s.cfg.fov)) cfg.fov = clamp(s.cfg.fov,45,90);
       if(typeof s.cfg.grid==='boolean') cfg.grid = s.cfg.grid;
       if(MODES.indexOf(s.cfg.measure)>-1) cfg.measure = s.cfg.measure;
@@ -1011,7 +929,6 @@ function frame(){
   updateHorizon();
   renderer.render(scene,camera);
   updateChips();
-  updateFloorViz(performance.now());
 }
 
 /* Inicio */
