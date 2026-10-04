@@ -401,13 +401,15 @@ $('#collapse').addEventListener('click',function(){
 /* Cámara virtual, giroscopio y ajustes                                */
 /* ------------------------------------------------------------------ */
 var euler = new THREE.Euler(0,0,0,'YXZ');
-var gyro = {on:false,got:false,yaw0:null,q:new THREE.Quaternion()};
+var gyro = {on:false,got:false,yaw0:null,off:0,sensorPitch:40,msg:null,q:new THREE.Quaternion()};
 var q1 = new THREE.Quaternion(-Math.SQRT1_2,0,0,Math.SQRT1_2), q0 = new THREE.Quaternion(), zee = new THREE.Vector3(0,0,1), eu = new THREE.Euler();
 
 function applyCamera(){
   camera.position.set(0,cfg.h/100,0);
   if(gyro.on && gyro.got && gyro.yaw0!==null){
     euler.setFromQuaternion(gyro.q,'YXZ'); euler.y -= gyro.yaw0;
+    gyro.sensorPitch = -euler.x/RAD;      /* inclinación real del móvil (grados hacia el suelo) */
+    euler.x -= gyro.off*RAD;              /* corrección manual / de calibración */
     camera.quaternion.setFromEuler(euler);
   }else{
     euler.set(-view.pitch*RAD,view.yaw,0,'YXZ');
@@ -417,6 +419,7 @@ function applyCamera(){
 }
 function onOrient(e){
   if(e.alpha==null||e.beta==null) return;
+  if(!gyro.got && gyro.msg){ toast(gyro.msg); gyro.msg = null; }
   gyro.got = true;
   var o = ((screen.orientation&&screen.orientation.angle)||window.orientation||0)*RAD;
   eu.set((e.beta||0)*RAD,(e.alpha||0)*RAD,-(e.gamma||0)*RAD,'YXZ');
@@ -427,70 +430,55 @@ function onOrient(e){
   }
 }
 var bGyro = $('#bGyro');
+function curPitch(){ return (gyro.on && gyro.got) ? gyro.sensorPitch+gyro.off : view.pitch; }
+
+/* iOS exige pedir el permiso de movimiento dentro del gesto del usuario  */
+/* (el toque). Por eso se llama SIEMPRE de forma síncrona desde el clic,   */
+/* antes de cualquier espera (p. ej. antes de abrir la cámara).            */
+function requestMotion(){
+  if(typeof DeviceOrientationEvent==='undefined') return Promise.resolve(false);
+  try{
+    if(typeof DeviceOrientationEvent.requestPermission==='function'){
+      return DeviceOrientationEvent.requestPermission().then(function(r){ return r==='granted'; },function(){ return false; });
+    }
+  }catch(e){ return Promise.resolve(false); }
+  return Promise.resolve(true);
+}
+/* Activa el seguimiento: la rejilla queda anclada al suelo aunque muevas el móvil */
+function beginGyro(msg){
+  if(gyro.on) return;
+  gyro.got = false; gyro.yaw0 = null; gyro.on = true; gyro.msg = msg||null;
+  window.addEventListener('deviceorientation',onOrient);
+  bGyro.setAttribute('aria-pressed','true'); syncSettings();
+  setTimeout(function(){
+    if(gyro.on && !gyro.got){
+      setGyro(false);
+      toast('No se detecta el sensor de inclinación de este dispositivo. Ajusta la inclinación a mano o usa «Calibrar suelo».');
+    }
+  },1800);
+}
 function setGyro(on){
   if(!on){
+    if(gyro.on && gyro.got){ view.pitch = clamp(curPitch(),0,85); view.yaw = euler.y; }
     window.removeEventListener('deviceorientation',onOrient);
-    gyro.on = false; bGyro.setAttribute('aria-pressed','false'); $('#sP').disabled = false;
-    return Promise.resolve();
+    gyro.on = false; bGyro.setAttribute('aria-pressed','false'); syncSettings();
+    return;
   }
-  var ask = Promise.resolve('granted');
-  try{
-    if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
-      ask = DeviceOrientationEvent.requestPermission();
-    }
-  }catch(e){ ask = Promise.reject(e); }
-  return ask.then(function(r){
-    if(r!=='granted'){ toast('Permiso de movimiento denegado. Actívalo en los ajustes del navegador.'); return; }
-    gyro.got = false; gyro.yaw0 = null; gyro.on = true;
-    window.addEventListener('deviceorientation',onOrient);
-    bGyro.setAttribute('aria-pressed','true'); $('#sP').disabled = true;
-    setTimeout(function(){
-      if(gyro.on && !gyro.got){
-        toast('Este dispositivo no envía datos de movimiento. Arrastra sobre la imagen para girar la vista.');
-        setGyro(false);
-      }
-    },1800);
-  }).catch(function(){ toast('No se pudo activar el giroscopio en este navegador.'); });
+  requestMotion().then(function(ok){
+    if(!ok){ toast('Permiso de movimiento denegado o sensor no disponible. Actívalo en los ajustes del navegador.'); return; }
+    beginGyro('Giroscopio activado. Si la rejilla no coincide con el suelo, ajusta la altura o toca «Calibrar suelo».');
+  });
 }
 bGyro.addEventListener('click',function(){ setGyro(!gyro.on); });
 
-/* Detección automática de la inclinación (sin toques) ---------------- */
-/* En cuanto se activa la cámara, si el navegador puede leer el sensor  */
-/* de movimiento del móvil, usamos la inclinación real del teléfono     */
-/* para ajustar solo el ángulo de la vista virtual al suelo. Esto no    */
-/* necesita ningún toque, pero solo funciona si el móvil sujeta la      */
-/* orientación de forma fiable; por eso "Calibrar suelo" (3 toques)     */
-/* sigue disponible para afinar o para navegadores sin este sensor.     */
-function attemptAutoTilt(){
-  if(typeof DeviceOrientationEvent==='undefined' || gyro.on) return;
-  var ask = Promise.resolve('granted');
-  try{
-    if(typeof DeviceOrientationEvent.requestPermission==='function'){
-      ask = DeviceOrientationEvent.requestPermission();
-    }
-  }catch(e){ ask = Promise.reject(e); }
-  ask.then(function(r){
-    if(r!=='granted') return;
-    var handled = false;
-    function once(e){
-      if(handled || e.beta==null) return;
-      handled = true;
-      window.removeEventListener('deviceorientation',once);
-      var p = clamp(90-Math.abs(e.beta),0,85);
-      view.pitch = p; syncSettings();
-      toast('Inclinación detectada automáticamente. Toca «Calibrar suelo» para ajustarlo con precisión.');
-    }
-    window.addEventListener('deviceorientation',once);
-    setTimeout(function(){ if(!handled) window.removeEventListener('deviceorientation',once); },1200);
-  }).catch(function(){ /* silencioso: seguirá disponible la calibración manual */ });
-}
-
 /* Ajustes */
-var sH=$('#sH'), sP=$('#sP'), sF=$('#sF'), sD=$('#sD');
+var sH=$('#sH'), sP=$('#sP'), sF=$('#sF'), sD=$('#sD'), sO=$('#sO');
 function syncSettings(){
   sH.value = cfg.h; sF.value = cfg.fov; sP.value = Math.round(view.pitch); sD.value = Math.round(cfg.refDist*100);
   $('#oH').textContent = cfg.h+' cm'; $('#oF').textContent = cfg.fov+'°'; $('#oP').textContent = Math.round(view.pitch)+'°';
   $('#oD').textContent = Math.round(cfg.refDist*100)+' cm';
+  sO.value = Math.round(gyro.off); $('#oO').textContent = Math.round(gyro.off)+'°';
+  sP.disabled = gyro.on; sO.disabled = !gyro.on;
   camera.fov = cfg.fov; camera.updateProjectionMatrix();
   grid.visible = cfg.grid;
   $('#bGrid').setAttribute('aria-pressed',String(cfg.grid));
@@ -498,8 +486,9 @@ function syncSettings(){
 sH.addEventListener('input',function(){ cfg.h = parseInt(sH.value,10); syncSettings(); save(); });
 sF.addEventListener('input',function(){ cfg.fov = parseInt(sF.value,10); syncSettings(); save(); });
 sP.addEventListener('input',function(){ view.pitch = parseInt(sP.value,10); syncSettings(); });
+sO.addEventListener('input',function(){ gyro.off = parseInt(sO.value,10); syncSettings(); save(); });
 sD.addEventListener('input',function(){ cfg.refDist = parseInt(sD.value,10)/100; syncSettings(); save(); });
-$('#sReset').addEventListener('click',function(){ cfg.h=140; cfg.fov=65; view.pitch=40; cfg.refDist=1; syncSettings(); save(); });
+$('#sReset').addEventListener('click',function(){ cfg.h=140; cfg.fov=65; view.pitch=40; cfg.refDist=1; gyro.off=0; syncSettings(); save(); });
 $('#bSet').addEventListener('click',function(){
   var pop = $('#settings'); pop.hidden = !pop.hidden;
   this.setAttribute('aria-pressed',String(!pop.hidden));
@@ -532,24 +521,28 @@ function setBg(mode){
   if(mode!=='none') backdrop.style.removeProperty('--hz');
 }
 function startCamera(){
+  /* Primera línea: el permiso de movimiento debe pedirse dentro del gesto del usuario (iOS) */
+  var motion = requestMotion();
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
     toast('Este navegador no permite abrir la cámara aquí. Usa una foto de la habitación.');
     return Promise.resolve(false);
   }
-  return navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false})
-    .then(function(s){
-      if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
-      stream = s; cam.srcObject = s; setBg('cam');
-      var p = cam.play(); if(p&&p.catch) p.catch(function(){});
-      attemptAutoTilt();
-      return true;
-    })
-    .catch(function(err){
-      var denied = err && (err.name==='NotAllowedError' || err.name==='SecurityError');
-      toast(denied ? 'No hay permiso para usar la cámara. Actívalo en el navegador o usa una foto de la habitación.'
-                   : 'No se pudo abrir la cámara. Usa una foto de la habitación.');
-      return false;
-    });
+  return motion.then(function(motionOk){
+    return navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false})
+      .then(function(s){
+        if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
+        stream = s; cam.srcObject = s; setBg('cam');
+        var p = cam.play(); if(p&&p.catch) p.catch(function(){});
+        /* Con la cámara activa, la rejilla sigue la inclinación real del móvil */
+        if(motionOk) beginGyro('Rejilla anclada al suelo con el sensor de movimiento. Si no coincide, ajusta la altura o toca «Calibrar suelo».');
+        return true;
+      });
+  }).catch(function(err){
+    var denied = err && (err.name==='NotAllowedError' || err.name==='SecurityError');
+    toast(denied ? 'No hay permiso para usar la cámara. Actívalo en el navegador o usa una foto de la habitación.'
+                 : 'No se pudo abrir la cámara. Usa una foto de la habitación.');
+    return false;
+  });
 }
 $('#bCam').addEventListener('click',function(){
   if(bgMode==='cam') setBg('none'); else startCamera();
@@ -645,7 +638,7 @@ function setCalibProgress(n){
 function startCalibration(){
   if(bgMode==='none'){ toast('Activa antes la cámara o una foto de la habitación.'); return; }
   select(null);
-  calib = {pts:[]};
+  calib = {pts:[],sp:[]};
   calibLayer.innerHTML = '';
   calibText.textContent = calibMsg(0);
   setCalibProgress(0);
@@ -736,7 +729,7 @@ function solveFloorCalibration(pts){
   var best = null;
   [0,90,180,270].forEach(function(t0){
     [-1.5,-2.5,-3.5].forEach(function(oz0){
-      var res = nelderMead(function(x){ return calibProjErr(x,pts); },[cfg.h,view.pitch,t0,0,oz0],{maxIter:220});
+      var res = nelderMead(function(x){ return calibProjErr(x,pts); },[cfg.h,curPitch(),t0,0,oz0],{maxIter:220});
       if(!best || res.f<best.f) best = res;
     });
   });
@@ -744,7 +737,9 @@ function solveFloorCalibration(pts){
   best = nelderMead(function(x){ return calibProjErr(x,pts); }, best.x, {maxIter:200,tol:1e-12});
   return best;
 }
-function finishCalibration(pts){
+function finishCalibration(pts,sp){
+  var useGyro = gyro.on && gyro.got;
+  var spMean = sp.reduce(function(a,b){ return a+b; },0)/sp.length;
   calibwrap.hidden = true; calibLayer.innerHTML = ''; calib = null;
   bCalib.setAttribute('aria-pressed','false');
   toast('Calculando…');
@@ -755,7 +750,8 @@ function finishCalibration(pts){
       return;
     }
     var h = clamp(best.x[0],80,220), pitch = clamp(best.x[1],0,85);
-    cfg.h = Math.round(h); view.pitch = pitch;
+    cfg.h = Math.round(h);
+    if(useGyro){ gyro.off = clamp(pitch-spMean,-25,25); } else { view.pitch = pitch; }
     syncSettings(); save();
     if(best.f > 0.02){
       toast('Suelo calibrado, pero con poca precisión. Repite tocando puntos más separados y bien definidos.');
@@ -770,10 +766,10 @@ canvas.addEventListener('pointerdown',function(e){
   if(!e.isPrimary) return;
   if(calib){
     addCalibDot(e.clientX,e.clientY,calib.pts.length+1);
-    calib.pts.push(ndcFrom(e.clientX,e.clientY));
+    calib.pts.push(ndcFrom(e.clientX,e.clientY)); calib.sp.push(gyro.sensorPitch);
     setCalibProgress(calib.pts.length);
     if(calib.pts.length<3){ calibText.textContent = calibMsg(calib.pts.length); }
-    else{ var pts = calib.pts; finishCalibration(pts); }
+    else{ var pts = calib.pts, sp = calib.sp; finishCalibration(pts,sp); }
     return;
   }
   try{ canvas.setPointerCapture(e.pointerId); }catch(_){}
@@ -877,7 +873,7 @@ function save(){
     try{
       localStorage.setItem(KEY,JSON.stringify({
         items:items.map(function(i){ return {t:i.type,d:i.dim,c:i.color,r:i.rot,x:i.group.position.x,z:i.group.position.z}; }),
-        cfg:{h:cfg.h,fov:cfg.fov,grid:cfg.grid,measure:cfg.measure,refDist:cfg.refDist}
+        cfg:{h:cfg.h,fov:cfg.fov,grid:cfg.grid,measure:cfg.measure,refDist:cfg.refDist,off:gyro.off}
       }));
     }catch(_){}
   },400);
@@ -890,6 +886,7 @@ function restore(){
       if(isFinite(s.cfg.fov)) cfg.fov = clamp(s.cfg.fov,45,90);
       if(typeof s.cfg.grid==='boolean') cfg.grid = s.cfg.grid;
       if(MODES.indexOf(s.cfg.measure)>-1) cfg.measure = s.cfg.measure;
+      if(isFinite(s.cfg.off)) gyro.off = clamp(s.cfg.off,-25,25);
       if(isFinite(s.cfg.refDist)) cfg.refDist = clamp(s.cfg.refDist,0.3,3);
     }
     (s.items||[]).slice(0,60).forEach(function(o){
